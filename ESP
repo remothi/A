@@ -1,0 +1,2437 @@
+do
+local Players = game:GetService("Players")
+local Workspace = game:GetService("Workspace")
+local CoreGui = game:GetService("CoreGui")
+local RunService = game:GetService("RunService")
+local Lighting = game:GetService("Lighting")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local player = Players.LocalPlayer
+
+local ESPConfig = {
+    Players=true,
+    Aooni=true,
+    Items=true,
+    PuzzleRooms=true,
+    StrongboxNum=true,
+    SweepingNum=true,
+    Lines=true,
+    Rooms=true,
+    Fullbright=true
+}
+
+local espFolder = CoreGui:FindFirstChild("ESPFolder")
+if espFolder then espFolder:Destroy() end
+espFolder = Instance.new("Folder")
+espFolder.Name = "ESPFolder"
+espFolder.Parent = CoreGui
+
+local lineFolder = Workspace:FindFirstChild("ESP_Lines") or Instance.new("Folder")
+lineFolder.Name = "ESP_Lines"
+lineFolder.Parent = Workspace
+
+local sweepingLabels = {}
+
+-- ビーム再利用用のキャッシュ
+local beamCache = {
+    Item = {Beam = nil, Attr0 = nil, Attr1 = nil},
+    Aooni = {Beam = nil, Attr0 = nil, Attr1 = nil}
+}
+
+-- ビーム生成・取得関数
+local function getOrCreateBeam(key, color)
+    local data = beamCache[key]
+    if not data.Beam or not data.Beam.Parent then
+        data.Attr0 = Instance.new("Attachment")
+        data.Attr1 = Instance.new("Attachment")
+        data.Beam = Instance.new("Beam")
+        data.Beam.Width0 = 0.05
+        data.Beam.Width1 = 0.05
+        data.Beam.FaceCamera = true
+        data.Beam.Color = ColorSequence.new(color)
+        data.Beam.Attachment0 = data.Attr0
+        data.Beam.Attachment1 = data.Attr1
+    end
+    return data
+end
+
+local function extractNumber(text)
+    local cleanText = text:gsub("<[^>]->","")
+    return cleanText:match("%d+") or ""
+end
+
+local function getClosest(folder)
+    local char = player.Character
+    if not char or not char:FindFirstChild("HumanoidRootPart") then return nil end
+    local hrp = char.HumanoidRootPart
+    local closest, minDist = nil, math.huge
+    for _, obj in pairs(folder:GetChildren()) do
+        if obj:IsA("Model") then
+            local part = obj.PrimaryPart or obj:FindFirstChild("HumanoidRootPart")
+            if part then
+                local dist = (hrp.Position - part.Position).Magnitude
+                if dist < minDist then
+                    minDist = dist
+                    closest = part
+                end
+            end
+        end
+    end
+    return closest
+end
+
+local function createESP(model, name, color)
+    if not model or not model:IsA("Model") or not model:IsDescendantOf(Workspace) then return end
+    local uniqueID = model:GetDebugId()
+    local boxName = "ESP_"..uniqueID
+    if espFolder:FindFirstChild(boxName) then return end
+    
+    local size = model.PrimaryPart and model.PrimaryPart.Size or model:GetExtentsSize()
+    local box = Instance.new("BoxHandleAdornment")
+    box.Name = boxName
+    box.Adornee = model.PrimaryPart or model:FindFirstChild("HumanoidRootPart") or model
+    box.AlwaysOnTop = true
+    box.ZIndex = 0
+    box.Size = size
+    box.Color3 = color
+    box.Transparency = 0.5
+    box.Parent = espFolder
+
+    local label = Instance.new("BillboardGui")
+    label.Name = "Label_"..boxName
+    label.Adornee = box.Adornee
+    label.Size = UDim2.new(0,60,0,14)
+    label.StudsOffset = Vector3.new(0,3,0)
+    label.AlwaysOnTop = true
+    label.Parent = espFolder
+
+    local textLabel = Instance.new("TextLabel")
+    textLabel.Size = UDim2.new(1,0,1,0)
+    textLabel.BackgroundTransparency = 1
+    textLabel.TextColor3 = color
+    textLabel.TextStrokeTransparency = 0
+    textLabel.TextScaled = true
+    textLabel.Font = Enum.Font.ArialBold
+    textLabel.Text = name
+    textLabel.Parent = label
+
+    if ESPConfig.StrongboxNum and model.Name=="StrongboxRoom" then
+        local puzzleObjects = model:FindFirstChild("PuzzleObjects")
+        local hintFolder = puzzleObjects and puzzleObjects:FindFirstChild("HintPapers")
+        local safeModel = puzzleObjects and puzzleObjects:FindFirstChild("Safe")
+        if hintFolder and safeModel then
+            for _, hint in pairs(hintFolder:GetChildren()) do
+                local hintLabel = hint:FindFirstChild("SurfaceGui") and hint.SurfaceGui:FindFirstChild("TextLabel")
+                if hintLabel then
+                    local adorneePart = safeModel.PrimaryPart or safeModel:FindFirstChildWhichIsA("BasePart") or safeModel
+                    local safeGui = Instance.new("BillboardGui")
+                    safeGui.Name = "StrongboxRoomLabel_"..model:GetDebugId().."_"..hint:GetDebugId()
+                    safeGui.Adornee = adorneePart
+                    safeGui.Size = UDim2.new(0,60,0,14)
+                    safeGui.StudsOffset = Vector3.new(0,5,0)
+                    safeGui.AlwaysOnTop = true
+                    safeGui.Parent = espFolder
+                    local safeText = Instance.new("TextLabel")
+                    safeText.Size = UDim2.new(1,0,1,0)
+                    safeText.BackgroundTransparency = 1
+                    safeText.TextColor3 = Color3.fromRGB(255,255,0)
+                    safeText.TextScaled = true
+                    safeText.Font = Enum.Font.ArialBold
+                    safeText.Text = extractNumber(hintLabel.Text)
+                    safeText.Parent = safeGui
+                    table.insert(sweepingLabels,{label=safeText,source=hintLabel,parentGui=safeGui})
+                end
+            end
+        end
+    end
+
+    if ESPConfig.SweepingNum and model.Name=="SweepingRoom" then
+        local puzzleObjects = model:FindFirstChild("PuzzleObjects")
+        local sheet = puzzleObjects and puzzleObjects:FindFirstChild("Sheet")
+        local buttons = puzzleObjects and puzzleObjects:FindFirstChild("ButtonLocations")
+        if sheet and sheet:FindFirstChild("SurfaceGui") and buttons then
+            local frame = sheet.SurfaceGui:FindFirstChild("Frame")
+            if frame then
+                for i=1,16 do
+                    local frameName = string.format("%03d",i)
+                    local labelObj = frame:FindFirstChild(frameName) and frame[frameName]:FindFirstChild("Label")
+                    local buttonModel = buttons:FindFirstChild(tostring(i))
+                    if labelObj and buttonModel then
+                        local number = extractNumber(labelObj.Text)
+                        if number~="" then
+                            local espGui = Instance.new("BillboardGui")
+                            espGui.Name = "SweepingRoomLabel_"..model:GetDebugId().."_"..i
+                            espGui.Size = UDim2.new(0,50,0,20)
+                            espGui.Adornee = buttonModel.PrimaryPart or buttonModel:FindFirstChild("HumanoidRootPart") or buttonModel
+                            espGui.AlwaysOnTop = true
+                            espGui.Parent = espFolder
+                            local numLabel = Instance.new("TextLabel")
+                            numLabel.Size = UDim2.new(1,0,1,0)
+                            numLabel.BackgroundTransparency = 1
+                            numLabel.TextColor3 = Color3.fromRGB(255,255,0)
+                            numLabel.TextScaled = true
+                            numLabel.Font = Enum.Font.ArialBold
+                            numLabel.Text = number
+                            numLabel.Parent = espGui -- 修正箇所
+                            table.insert(sweepingLabels,{label=numLabel,source=labelObj,parentGui=espGui})
+                        end
+                    end
+                end
+            end
+        end
+    end
+
+    model.AncestryChanged:Connect(function(_,parent)
+        if not parent then
+            box:Destroy()
+            label:Destroy()
+        end
+    end)
+end
+
+local espActive = true
+local lastScan = 0
+local function scanESP()
+    if not espActive then return end
+    if tick()-lastScan<5 then return end
+    lastScan = tick()
+
+    if ESPConfig.Players then
+        for _,plr in pairs(Players:GetPlayers()) do
+            if plr~=player and plr.Character then
+                if plr:GetAttribute("isAooni") == true then
+                    createESP(plr.Character, plr.Name .. " (Aooni)", Color3.new(1,0,0))
+                else
+                    createESP(plr.Character, plr.Name, Color3.new(1,1,1))
+                end
+            end
+        end
+    end
+
+    if ESPConfig.Aooni then
+        local aooniFolder = Workspace:FindFirstChild("Aooni")
+        if aooniFolder then
+            for _,model in pairs(aooniFolder:GetChildren()) do
+                if model:IsA("Model") and model.Name=="Aooni" then createESP(model,"Aooni",Color3.new(1,0,0)) end
+            end
+        end
+        if player:GetAttribute("isAooni") == true and player.Character then
+            createESP(player.Character, "You (Aooni)", Color3.new(1,0,0))
+        end
+    end
+
+    if ESPConfig.Items then
+        local school = Workspace:FindFirstChild("School")
+        local itemFolder = school and school:FindFirstChild("Item")
+        if itemFolder then
+            for _,item in pairs(itemFolder:GetChildren()) do
+                if item:IsA("Model") then
+                    createESP(item, item.Name, Color3.fromRGB(0,170,255))
+                end
+            end
+        end
+    end
+
+    if ESPConfig.PuzzleRooms and Workspace:FindFirstChild("School") then
+        local school=Workspace.School
+        for _,room in pairs(school:GetChildren()) do
+            if room:IsA("Model") and (room.Name=="SweepingRoom" or room.Name=="StrongboxRoom" or room.Name=="RadioRoom") then createESP(room,room.Name,Color3.fromRGB(255,170,0)) end
+        end
+    end
+
+    if ESPConfig.Rooms then
+        local objValues = ReplicatedStorage:FindFirstChild("ObjectValues")
+        local safeAreaValue = objValues and objValues:FindFirstChild("SafeArea")
+        
+        if safeAreaValue and safeAreaValue:IsA("ObjectValue") and safeAreaValue.Value then
+            local targetModel = safeAreaValue.Value
+            local displayName = safeAreaValue.Name
+            
+            if string.find(displayName, "１時間目") then displayName = "1時間目"
+            elseif displayName == "ClassRoomLibrary" then displayName = "Library"
+            elseif displayName == "ClassRoomScience" then displayName = "Science" end
+            
+            createESP(targetModel, displayName, Color3.fromRGB(0,255,0))
+        end
+    end
+end
+
+if ESPConfig.Fullbright then
+    local function applyFullbright()
+        Lighting.Brightness=2
+        Lighting.ClockTime=0
+        Lighting.FogEnd=100000
+        Lighting.GlobalShadows=false
+        Lighting.Ambient=Color3.fromRGB(255,255,255)
+    end
+    applyFullbright()
+    for _,prop in pairs({"Brightness","ClockTime","FogEnd","GlobalShadows","Ambient"}) do
+        Lighting:GetPropertyChangedSignal(prop):Connect(applyFullbright)
+    end
+end
+
+RunService.RenderStepped:Connect(function()
+    for i=#sweepingLabels,1,-1 do
+        local data = sweepingLabels[i]
+        if not data.source or not data.source.Parent or not data.parentGui.Parent then
+            if data.parentGui then data.parentGui:Destroy() end
+            table.remove(sweepingLabels,i)
+        else
+            local num = extractNumber(data.source.Text)
+            if data.label.Text~=num then data.label.Text=num end
+        end
+    end
+    
+    local char = player.Character
+    local hrp = char and char:FindFirstChild("HumanoidRootPart")
+    
+    local function updateBeam(key, target, color)
+        local data = getOrCreateBeam(key, color)
+        if hrp and target and target:IsDescendantOf(Workspace) and ESPConfig.Lines then
+            if data.Attr0.Parent ~= hrp then data.Attr0.Parent = hrp end
+            if data.Attr1.Parent ~= target then data.Attr1.Parent = target end
+            if data.Beam.Parent ~= lineFolder then data.Beam.Parent = lineFolder end
+        else
+            data.Beam.Parent = nil
+            data.Attr0.Parent = nil
+            data.Attr1.Parent = nil
+        end
+    end
+
+    if ESPConfig.Items then
+        local school = Workspace:FindFirstChild("School")
+        local itemFolder = school and school:FindFirstChild("Item")
+        updateBeam("Item", itemFolder and getClosest(itemFolder), Color3.fromRGB(0,170,255))
+    else
+        updateBeam("Item", nil)
+    end
+
+    if ESPConfig.Aooni then
+        local aooniFolder = Workspace:FindFirstChild("Aooni")
+        updateBeam("Aooni", aooniFolder and getClosest(aooniFolder), Color3.new(1,0,0))
+    else
+        updateBeam("Aooni", nil)
+    end
+end)
+
+task.spawn(function()
+    while espActive do
+        scanESP()
+        task.wait(5)
+    end
+end)
+end
+
+
+
+
+do
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local recover = ReplicatedStorage:WaitForChild("InGame"):WaitForChild("Instances"):WaitForChild("Bind"):WaitForChild("StaminaRecover")
+
+task.spawn(function()
+    while true do
+        recover:Fire(20)
+        task.wait(1)  
+    end
+end)
+end
+do
+
+local player = game.Players.LocalPlayer
+local RunService = game:GetService("RunService")
+local UserInputService = game:GetService("UserInputService")
+
+local ScreenGui = Instance.new("ScreenGui")
+ScreenGui.ResetOnSpawn = false
+ScreenGui.Parent = game:GetService("CoreGui")
+
+local Button = Instance.new("TextButton")
+Button.Size = UDim2.new(0,50,0,50)
+Button.Position = UDim2.new(0.5,-25,0,20)
+Button.BackgroundColor3 = Color3.fromRGB(180,50,50)
+Button.TextColor3 = Color3.fromRGB(255,255,255)
+Button.Text = "OFF"
+Button.Font = Enum.Font.SourceSansBold
+Button.TextSize = 16
+Button.Parent = ScreenGui
+
+local UICorner = Instance.new("UICorner")
+UICorner.CornerRadius = UDim.new(1,0)
+UICorner.Parent = Button
+
+local noclipEnabled = false
+local connection
+local originalCollide = {}
+
+local function applyNoclip()
+	if connection then connection:Disconnect() end
+	connection = RunService.Stepped:Connect(function()
+		if player.Character then
+			for _, part in ipairs(player.Character:GetDescendants()) do
+				if part:IsA("BasePart") then
+					part.CanCollide = false
+				end
+			end
+
+			local hrp = player.Character:FindFirstChild("HumanoidRootPart")
+			if hrp then
+				local pos = hrp.Position
+				if pos.Y < 0 then
+					local ori = hrp.Orientation
+					hrp.CFrame = CFrame.new(Vector3.new(pos.X, 3, pos.Z)) * CFrame.Angles(
+						math.rad(ori.X),
+						math.rad(ori.Y),
+						math.rad(ori.Z)
+					)
+				end
+			end
+		end
+	end)
+end
+
+local function disableNoclip()
+	if connection then connection:Disconnect() end
+	if player.Character then
+		for part, state in pairs(originalCollide) do
+			if part and part:IsA("BasePart") then
+				part.CanCollide = state
+			end
+		end
+	end
+end
+
+local function setNoclip(state)
+	noclipEnabled = state
+	if state then
+		Button.Text = "ON"
+		Button.BackgroundColor3 = Color3.fromRGB(50,180,80)
+		applyNoclip()
+	else
+		Button.Text = "OFF"
+		Button.BackgroundColor3 = Color3.fromRGB(180,50,50)
+		disableNoclip()
+	end
+end
+
+player.CharacterAdded:Connect(function(char)
+	task.wait(0.5)
+	originalCollide = {}
+	for _, part in ipairs(char:GetDescendants()) do
+		if part:IsA("BasePart") then
+			originalCollide[part] = part.CanCollide
+		end
+	end
+	if noclipEnabled then applyNoclip() end
+end)
+
+local dragging = false
+local dragStart, startPos
+local moved = false
+local dragThreshold = 5
+
+Button.InputBegan:Connect(function(input)
+	if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+		dragging = true
+		moved = false
+		dragStart = input.Position
+		startPos = Button.Position
+		input.Changed:Connect(function()
+			if input.UserInputState == Enum.UserInputState.End then
+				dragging = false
+				if not moved then
+					setNoclip(not noclipEnabled)
+				end
+			end
+		end)
+	end
+end)
+
+UserInputService.InputChanged:Connect(function(input)
+	if dragging and (input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch) then
+		local delta = input.Position - dragStart
+		if math.abs(delta.X) > dragThreshold or math.abs(delta.Y) > dragThreshold then
+			moved = true
+		end
+		if moved then
+			local newX = startPos.X.Offset + delta.X
+			local newY = startPos.Y.Offset + delta.Y
+			local screenSize = workspace.CurrentCamera.ViewportSize
+			local buttonSize = Button.AbsoluteSize
+			newX = math.clamp(newX, 0, screenSize.X - buttonSize.X)
+			newY = math.clamp(newY, 0, screenSize.Y - buttonSize.Y)
+			Button.Position = UDim2.new(
+				startPos.X.Scale,
+				newX,
+				startPos.Y.Scale,
+				newY
+			)
+		end
+	end
+end)
+
+end
+
+
+do
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+
+if not ReplicatedStorage:GetAttribute("inDaytime") then
+    ReplicatedStorage:SetAttribute("inDaytime", true)
+end
+
+ReplicatedStorage:GetAttributeChangedSignal("inDaytime"):Connect(function()
+    if not ReplicatedStorage:GetAttribute("inDaytime") then
+        ReplicatedStorage:SetAttribute("inDaytime", true)
+    end
+end)
+end
+do
+local Players = game:GetService("Players")
+local RunService = game:GetService("RunService")
+
+local ScreenGui = Instance.new("ScreenGui")
+ScreenGui.ResetOnSpawn = false
+ScreenGui.Parent = game.CoreGui
+
+local Frame = Instance.new("Frame")
+Frame.Size = UDim2.new(0, 150, 0, 60)
+Frame.Position = UDim2.new(1, 150, 0.3, 0)
+Frame.BackgroundTransparency = 0.3
+Frame.BackgroundColor3 = Color3.fromRGB(30,30,30)
+Frame.AnchorPoint = Vector2.new(1,0)
+Frame.Parent = ScreenGui
+
+local survivorsLabel = Instance.new("TextLabel")
+survivorsLabel.Size = UDim2.new(1, 0, 0.5, 0)
+survivorsLabel.BackgroundTransparency = 1
+survivorsLabel.TextColor3 = Color3.new(1,1,1)
+survivorsLabel.TextScaled = true
+survivorsLabel.Text = "生存者: 0"
+survivorsLabel.Parent = Frame
+
+local spectatorsLabel = Instance.new("TextLabel")
+spectatorsLabel.Size = UDim2.new(1, 0, 0.5, 0)
+spectatorsLabel.Position = UDim2.new(0,0,0.5,0)
+spectatorsLabel.BackgroundTransparency = 1
+spectatorsLabel.TextColor3 = Color3.new(1,1,1)
+spectatorsLabel.TextScaled = true
+spectatorsLabel.Text = "観戦者: 0"
+spectatorsLabel.Parent = Frame
+
+local ToggleButton = Instance.new("TextButton")
+ToggleButton.Size = UDim2.new(0, 30, 0, 60)
+ToggleButton.Position = UDim2.new(1, 0, 0.3, 0)
+ToggleButton.AnchorPoint = Vector2.new(1,0)
+ToggleButton.BackgroundTransparency = 0.3
+ToggleButton.BackgroundColor3 = Color3.fromRGB(50,50,50)
+ToggleButton.TextColor3 = Color3.new(1,1,1)
+ToggleButton.Text = "←"
+ToggleButton.Parent = ScreenGui
+
+local isOpen = false
+local openPos = UDim2.new(1, -30, 0.3, 0)
+local closedPos = UDim2.new(1, 150, 0.3, 0)
+
+local function toggleFrame()
+    if isOpen then
+        Frame:TweenPosition(closedPos,"Out","Quad",0.3,true)
+        ToggleButton.Text = "←"
+    else
+        Frame:TweenPosition(openPos,"Out","Quad",0.3,true)
+        ToggleButton.Text = "→"
+    end
+    isOpen = not isOpen
+end
+
+ToggleButton.MouseButton1Click:Connect(toggleFrame)
+
+local function updateCounts()
+    local alive, spectators = 0, 0
+    for _, plr in pairs(Players:GetPlayers()) do
+        local char = plr.Character
+        local humanoid = char and char:FindFirstChildOfClass("Humanoid")
+        if humanoid and humanoid.Health > 0 then
+            alive += 1
+        else
+            spectators += 1
+        end
+    end
+    survivorsLabel.Text = "生存者: " .. alive
+    spectatorsLabel.Text = "観戦者: " .. spectators
+end
+
+Players.PlayerAdded:Connect(updateCounts)
+Players.PlayerRemoving:Connect(updateCounts)
+RunService.Heartbeat:Connect(updateCounts)
+
+updateCounts()
+end
+
+for _, model in pairs(workspace:WaitForChild("FinalGame"):WaitForChild("Templates"):GetChildren()) do
+	if model:IsA("Model") then
+		local damageParts = model:FindFirstChild("DamageParts")
+		if damageParts then
+			damageParts:Destroy()
+		end
+	end
+end
+
+do
+local Players = game:GetService("Players")
+local LocalPlayer = Players.LocalPlayer
+local Workspace = game:GetService("Workspace")
+
+local function createPromptButton()
+    local PlayerGui = LocalPlayer:WaitForChild("PlayerGui")
+    local ScreenGui = Instance.new("ScreenGui")
+    ScreenGui.Name = "PromptButtonGui"
+    ScreenGui.Parent = PlayerGui
+
+    local Button = Instance.new("TextButton")
+    Button.AnchorPoint = Vector2.new(0.5, 0.5)
+    Button.Text = ""
+    Button.Visible = false
+    Button.BackgroundTransparency = 0.5
+    Button.BackgroundColor3 = Color3.fromRGB(0, 0, 0)
+    Button.BorderSizePixel = 0
+    Button.AutoButtonColor = true
+
+    local UICorner = Instance.new("UICorner")
+    UICorner.CornerRadius = UDim.new(0.5,0)
+    UICorner.Parent = Button
+
+    Button.Parent = ScreenGui
+
+    local function updateButtonSizeAndPosition()
+        local screenSize = workspace.CurrentCamera.ViewportSize
+        Button.Size = UDim2.new(0, screenSize.X * 0.1, 0, screenSize.X * 0.1)
+        Button.Position = UDim2.new(0.85, 0, 0.65, 0)
+    end
+
+    updateButtonSizeAndPosition()
+    workspace.CurrentCamera:GetPropertyChangedSignal("ViewportSize"):Connect(updateButtonSizeAndPosition)
+
+    local currentPrompt = nil
+    local holding = false
+
+    local function setupPrompt(prompt)
+        prompt.PromptShown:Connect(function()
+            currentPrompt = prompt
+            Button.Visible = true
+        end)
+        prompt.PromptHidden:Connect(function()
+            if currentPrompt == prompt then
+                currentPrompt = nil
+                Button.Visible = false
+            end
+        end)
+    end
+
+    for _, prompt in pairs(Workspace:GetDescendants()) do
+        if prompt:IsA("ProximityPrompt") then
+            setupPrompt(prompt)
+        end
+    end
+
+    Workspace.DescendantAdded:Connect(function(desc)
+        if desc:IsA("ProximityPrompt") then
+            setupPrompt(desc)
+        end
+    end)
+
+    Button.MouseButton1Down:Connect(function()
+        if currentPrompt then
+            holding = true
+            currentPrompt:InputHoldBegin()
+        end
+    end)
+
+    Button.MouseButton1Up:Connect(function()
+        if currentPrompt and holding then
+            holding = false
+            currentPrompt:InputHoldEnd()
+        end
+    end)
+end
+
+createPromptButton()
+
+LocalPlayer.CharacterAdded:Connect(function()
+    local oldGui = LocalPlayer.PlayerGui:FindFirstChild("PromptButtonGui")
+    if oldGui then oldGui:Destroy() end
+    createPromptButton()
+end)
+end
+--[[
+	WARNING: Heads up! This script has not been verified by ScriptBlox. Use at your own risk!
+]]
+local ProximityPromptService = game:GetService("ProximityPromptService")
+local instantInteractEnabled = true
+
+ProximityPromptService.PromptButtonHoldBegan:Connect(function(prompt, player)
+    if instantInteractEnabled then
+        fireproximityprompt(prompt)
+    end
+end)
+
+do
+local Players = game:GetService("Players")
+local RunService = game:GetService("RunService")
+local UserInputService = game:GetService("UserInputService")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local CoreGui = game:GetService("CoreGui")
+
+local lp = Players.LocalPlayer
+local folderPath = workspace:WaitForChild("Aooni")
+local barrierOffset = Vector3.new(13, 12, 13) 
+local debug = true
+local aooniList = {} 
+local enabled = false 
+
+-- GUI作成
+local function createGUI()
+	local screenGui = CoreGui:FindFirstChild("BarrierGUI")
+	if screenGui then screenGui:Destroy() end
+	
+	screenGui = Instance.new("ScreenGui")
+	screenGui.Name = "BarrierGUI"
+	screenGui.Parent = CoreGui 
+	screenGui.IgnoreGuiInset = true
+
+	local toggleBtn = Instance.new("TextButton")
+	toggleBtn.Size = UDim2.new(0.12, 0, 0.07, 0) 
+	toggleBtn.Position = UDim2.new(0.5, -80, 0.2, 0)
+	toggleBtn.BackgroundColor3 = Color3.fromRGB(20, 20, 20)
+	toggleBtn.Text = enabled and "Barrier ON" or "Barrier OFF" 
+	toggleBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+	toggleBtn.Font = Enum.Font.Arcade
+	toggleBtn.TextScaled = true
+	toggleBtn.Parent = screenGui
+
+	local corner = Instance.new("UICorner")
+	corner.CornerRadius = UDim.new(0, 15)
+	corner.Parent = toggleBtn
+
+	toggleBtn.MouseButton1Click:Connect(function()
+		enabled = not enabled
+		toggleBtn.Text = enabled and "Barrier ON" or "Barrier OFF"
+	end)
+
+	-- ドラッグ機能
+	local dragging, dragInput, dragStart, startPos
+	toggleBtn.InputBegan:Connect(function(input)
+		if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+			dragging = true
+			dragStart = input.Position
+			startPos = toggleBtn.Position
+			input.Changed:Connect(function()
+				if input.UserInputState == Enum.UserInputState.End then dragging = false end
+			end)
+		end
+	end)
+	toggleBtn.InputChanged:Connect(function(input)
+		if input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch then
+			dragInput = input
+		end
+	end)
+	UserInputService.InputChanged:Connect(function(input)
+		if dragging and input == dragInput then
+			local delta = input.Position - dragStart
+			toggleBtn.Position = UDim2.new(startPos.X.Scale, startPos.X.Offset + delta.X, startPos.Y.Scale, startPos.Y.Offset + delta.Y)
+		end
+	end)
+
+	return toggleBtn
+end
+
+local toggleBtn = createGUI()
+
+local function makeBarrier()
+	local p = Instance.new("Part")
+	p.Name = "AooniBarrier"
+	p.Anchored = true
+	p.CanCollide = false
+	p.Transparency = debug and 0.6 or 1
+	p.Color = Color3.fromRGB(255, 0, 0)
+	p.Material = Enum.Material.ForceField
+	p.Size = Vector3.new(1, 1, 1)
+	p.Parent = workspace
+	return p
+end
+
+local function waitForRoot(model)
+	return model:FindFirstChild("HumanoidRootPart") or model.PrimaryPart or model:WaitForChild("HumanoidRootPart", 2)
+end
+
+local function createBarrier(model)
+	if not model or aooniList[model] then return end
+	local root = waitForRoot(model)
+	if not root then return end
+	
+	local barrier = makeBarrier()
+	aooniList[model] = {root = root, barrier = barrier}
+end
+
+local function removeBarrier(model)
+	if aooniList[model] then
+		if aooniList[model].barrier then aooniList[model].barrier:Destroy() end
+		aooniList[model] = nil
+	end
+end
+
+-- 1. NPC用監視
+for _, m in ipairs(folderPath:GetChildren()) do createBarrier(m) end
+folderPath.ChildAdded:Connect(function(c) task.wait(0.1); createBarrier(c) end)
+folderPath.ChildRemoved:Connect(removeBarrier)
+
+-- 2. プレイヤーの属性（Attribute）監視
+RunService.Heartbeat:Connect(function()
+	for _, player in pairs(Players:GetPlayers()) do
+		if player ~= lp and player.Character then
+			-- 属性 "isAooni" をチェック
+			local isAooni = player:GetAttribute("isAooni")
+			
+			if isAooni == true then
+				createBarrier(player.Character)
+			else
+				removeBarrier(player.Character)
+			end
+		end
+	end
+
+	-- バリアの更新と判定
+	if not enabled then 
+		for _, data in pairs(aooniList) do if data.barrier then data.barrier.Transparency = 1 end end
+		return 
+	end
+
+	local myChar = lp.Character
+	local myHrp = myChar and myChar:FindFirstChild("HumanoidRootPart")
+	if not myHrp then return end
+
+	local function getSafePos()
+		local ov = ReplicatedStorage:FindFirstChild("ObjectValues")
+		local sa = ov and ov:FindFirstChild("SafeArea")
+		if sa and sa.Value then
+			local target = sa.Value:IsA("Model") and (sa.Value.PrimaryPart or sa.Value:FindFirstChild("HumanoidRootPart")) or sa.Value
+			return target and target.Position or Vector3.new(0, 50, 0)
+		end
+		return Vector3.new(0, 50, 0)
+	end
+
+	for model, data in pairs(aooniList) do
+		local root = data.root
+		local barrier = data.barrier
+		if root and root.Parent and barrier then
+			barrier.Transparency = debug and 0.6 or 1
+			local finalSize = (root.Size or Vector3.new(4, 4, 4)) + barrierOffset * 2
+			barrier.Size = finalSize
+			barrier.CFrame = root.CFrame
+
+			local p = myHrp.Position
+			local bPos = root.Position
+			local min = bPos - (finalSize / 2)
+			local max = bPos + (finalSize / 2)
+			
+			if (p.X > min.X and p.X < max.X) and (p.Y > min.Y and p.Y < max.Y) and (p.Z > min.Z and p.Z < max.Z) then
+				myHrp.CFrame = CFrame.new(getSafePos() + Vector3.new(0, 3, 0))
+			end
+		else
+			removeBarrier(model)
+		end
+	end
+end)
+
+
+end
+
+do
+
+local Players = game:GetService("Players")
+local LocalPlayer = Players.LocalPlayer
+local Camera = workspace.CurrentCamera
+
+local screenGui = Instance.new("ScreenGui")
+screenGui.Parent = LocalPlayer:WaitForChild("PlayerGui")
+screenGui.ResetOnSpawn = false
+
+local screenSize = Camera.ViewportSize
+local function auto(px) return px * (screenSize.Y / 800) end
+
+local function UnlockViewLimits()
+	pcall(function()
+		LocalPlayer.CameraMode = Enum.CameraMode.Classic
+		LocalPlayer.DevEnableMouseLock = true
+		LocalPlayer.CameraMinZoomDistance = 0.5
+		LocalPlayer.CameraMaxZoomDistance = 50
+	end)
+end
+UnlockViewLimits()
+
+local frame = Instance.new("Frame")
+frame.Size = UDim2.new(0, auto(360), 0, auto(65))
+frame.Position = UDim2.new(0.5, -auto(180), 0, auto(20))
+frame.BackgroundColor3 = Color3.fromRGB(30,30,30)
+frame.BackgroundTransparency = 0.15
+frame.BorderSizePixel = 0
+frame.Visible = false
+frame.ZIndex = 2
+frame.Parent = screenGui
+
+local function style(obj)
+	obj.Font = Enum.Font.GothamBlack
+	obj.TextColor3 = Color3.fromRGB(255,255,255)
+	obj.TextStrokeTransparency = 0.4
+	obj.BackgroundTransparency = 1
+	obj.TextScaled = true
+end
+
+local prevBtn = Instance.new("TextButton", frame)
+prevBtn.Size = UDim2.new(0, auto(55), 1, 0)
+prevBtn.Position = UDim2.new(0,0,0,0)
+prevBtn.Text = "←"
+style(prevBtn)
+
+local nextBtn = Instance.new("TextButton", frame)
+nextBtn.Size = UDim2.new(0, auto(55), 1, 0)
+nextBtn.Position = UDim2.new(1, -auto(55), 0,0)
+nextBtn.Text = "→"
+style(nextBtn)
+
+local resetBtn = Instance.new("TextButton", frame)
+resetBtn.Size = UDim2.new(0, auto(90), 1, 0)
+resetBtn.Position = UDim2.new(1, -auto(150), 0, 0)
+resetBtn.Text = "戻す"
+style(resetBtn)
+
+local nameLabel = Instance.new("TextLabel", frame)
+nameLabel.Size = UDim2.new(1, -auto(220), 1, 0)
+nameLabel.Position = UDim2.new(0, auto(60), 0, 0)
+nameLabel.Text = "プレイヤーなし"
+style(nameLabel)
+
+local searchBox = Instance.new("TextBox")
+searchBox.Size = UDim2.new(1, -20, 0, auto(40))
+searchBox.Position = UDim2.new(0, 10, 0, -auto(45))
+searchBox.PlaceholderText = "プレイヤー名で検索"
+searchBox.Font = Enum.Font.GothamBold
+searchBox.TextColor3 = Color3.fromRGB(0,0,0)
+searchBox.PlaceholderColor3 = Color3.fromRGB(100,100,100)
+searchBox.BackgroundColor3 = Color3.fromRGB(230,230,230)
+searchBox.TextScaled = true
+searchBox.Parent = frame
+local UICorner2 = Instance.new("UICorner", searchBox)
+UICorner2.CornerRadius = UDim.new(0,6)
+
+local toggleBtn = Instance.new("TextButton", screenGui)
+toggleBtn.Size = UDim2.new(0, auto(65), 0, auto(65))
+toggleBtn.Position = UDim2.new(0, auto(10), 0, auto(10))
+toggleBtn.BackgroundColor3 = Color3.fromRGB(0,122,255)
+toggleBtn.Text = "👁"
+toggleBtn.Font = Enum.Font.GothamBlack
+toggleBtn.TextColor3 = Color3.fromRGB(255,255,255)
+toggleBtn.TextScaled = true
+toggleBtn.BorderSizePixel = 0
+toggleBtn.ZIndex = 3
+local corner = Instance.new("UICorner", toggleBtn)
+corner.CornerRadius = UDim.new(1,0)
+
+local dragging = false
+local startPos, startUIPos = nil, nil
+local dragThreshold = 8
+
+toggleBtn.InputBegan:Connect(function(input)
+	if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+		dragging = false
+		startPos = input.Position
+		startUIPos = toggleBtn.Position
+	end
+end)
+
+toggleBtn.InputChanged:Connect(function(input)
+	if not startPos then return end
+	local diff = input.Position - startPos
+	if diff.Magnitude > dragThreshold then dragging = true end
+	if dragging then
+		toggleBtn.Position = UDim2.new(
+			startUIPos.X.Scale, startUIPos.X.Offset + diff.X,
+			startUIPos.Y.Scale, startUIPos.Y.Offset + diff.Y
+		)
+	end
+end)
+
+toggleBtn.InputEnded:Connect(function(input)
+	startPos = nil
+	startUIPos = nil
+	dragging = false
+end)
+
+toggleBtn.Activated:Connect(function()
+	frame.Visible = not frame.Visible
+end)
+
+local playerList = {}
+local index = 1
+local function refresh()
+	playerList = {}
+	for _, p in ipairs(Players:GetPlayers()) do
+		if p ~= LocalPlayer then table.insert(playerList,p) end
+	end
+end
+refresh()
+Players.PlayerAdded:Connect(refresh)
+Players.PlayerRemoving:Connect(refresh)
+
+local function updateLabel()
+	if #playerList==0 then
+		nameLabel.Text="プレイヤーなし"
+		return
+	end
+	local p=playerList[index]
+	nameLabel.Text=p.DisplayName.." ("..p.Name..")"
+end
+
+local function view(p)
+	if p and p.Character then
+		local hum=p.Character:FindFirstChildOfClass("Humanoid")
+		if hum then
+			LocalPlayer.CameraMode=Enum.CameraMode.Classic
+			Camera.CameraSubject=hum
+		end
+	end
+end
+
+prevBtn.MouseButton1Click:Connect(function()
+	if #playerList==0 then return end
+	index=index-1
+	if index<1 then index=#playerList end
+	view(playerList[index])
+	updateLabel()
+end)
+nextBtn.MouseButton1Click:Connect(function()
+	if #playerList==0 then return end
+	index=index+1
+	if index>#playerList then index=1 end
+	view(playerList[index])
+	updateLabel()
+end)
+resetBtn.MouseButton1Click:Connect(function()
+	local hum = LocalPlayer.Character and LocalPlayer.Character:FindFirstChildOfClass("Humanoid")
+	if hum then Camera.CameraSubject=hum end
+end)
+
+local function lower(str) return string.lower(str or "") end
+local function searchForPlayer(query)
+	if query=="" then return end
+	local q = lower(query)
+	for i,p in ipairs(playerList) do
+		if string.find(lower(p.Name),q,1,true) or string.find(lower(p.DisplayName),q,1,true) then
+			index=i
+			updateLabel()
+			view(p)
+			return
+		end
+	end
+	nameLabel.Text="該当プレイヤーなし"
+end
+searchBox.FocusLost:Connect(function(enterPressed)
+	if enterPressed then searchForPlayer(searchBox.Text) end
+end)
+
+updateLabel()
+end
+do
+local RunService = game:GetService("RunService")
+local CoreGui = game:GetService("CoreGui")
+local Workspace = game:GetService("Workspace")
+local Players = game:GetService("Players")
+local Camera = game.Workspace.CurrentCamera 
+
+local player = Players.LocalPlayer
+
+-- --- 共通ユーティリティ関数（既存ロジック用） ---
+
+local function getHRP()
+    local char = player.Character
+    if not char or not char.Parent then
+        char = player.CharacterAdded:Wait()
+    end
+    local hrp = char:WaitForChild("HumanoidRootPart")
+    return hrp
+end
+
+local function firePrompt(prompt)
+    if prompt and prompt.Parent then
+        if fireproximityprompt then
+            fireproximityprompt(prompt)
+        end
+    end
+end
+
+local function findPromptRecursive(item)
+    if not item then return nil end
+    if item:IsA("ProximityPrompt") then return item end
+    for _, c in ipairs(item:GetChildren()) do
+        local p = findPromptRecursive(c)
+        if p then return p end
+    end
+    return nil
+end
+
+local function findAnyPart(model)
+    if model:IsA("BasePart") then return model end
+    for _, c in ipairs(model:GetChildren()) do
+        local p = findAnyPart(c)
+        if p then return p end
+    end
+    return nil
+end
+
+-- --- UI構築 ---
+
+if CoreGui:FindFirstChild("Exec4Buttons") then
+    CoreGui.Exec4Buttons:Destroy()
+end
+
+local gui = Instance.new("ScreenGui")
+gui.Name = "Exec4Buttons"
+gui.Parent = CoreGui
+
+local frame = Instance.new("Frame")
+frame.Name = "MainFrame"
+frame.AnchorPoint = Vector2.new(0.5, 0.5)
+frame.Position = UDim2.new(0.5, 0, 0.5, 0)
+frame.Size = UDim2.new(0, 220, 0, 230) -- コンパクトサイズ
+frame.BackgroundColor3 = Color3.fromRGB(35, 35, 35)
+frame.BorderSizePixel = 0
+frame.Active = true
+frame.Draggable = true
+frame.ClipsDescendants = true
+frame.Parent = gui
+
+Instance.new("UICorner", frame).CornerRadius = UDim.new(0, 8)
+
+local title = Instance.new("TextLabel", frame)
+title.Size = UDim2.new(1, -40, 0, 30)
+title.Position = UDim2.new(0, 8, 0, 0)
+title.BackgroundTransparency = 1
+title.Text = "Executor 4"
+title.TextColor3 = Color3.fromRGB(255, 255, 255)
+title.TextSize = 16
+title.Font = Enum.Font.SourceSansBold
+title.TextXAlignment = Enum.TextXAlignment.Left
+
+local foldBtn = Instance.new("TextButton", frame)
+foldBtn.Size = UDim2.new(0, 26, 0, 26)
+foldBtn.Position = UDim2.new(1, -4, 0, 2)
+foldBtn.AnchorPoint = Vector2.new(1, 0)
+foldBtn.Text = "▼"
+foldBtn.TextSize = 14
+foldBtn.BackgroundColor3 = Color3.fromRGB(80, 80, 80)
+foldBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+foldBtn.Font = Enum.Font.SourceSansBold
+Instance.new("UICorner", foldBtn).CornerRadius = UDim.new(0, 4)
+
+local folded = false
+local expandedHeight = 230
+local foldedHeight = 30
+local foldInProgress = false
+
+local buttons = {}
+local countLabels = {}
+
+local function toggleFold()
+    if foldInProgress then return end
+    foldInProgress = true 
+
+    if folded then
+        frame.Size = UDim2.new(0, 220, 0, expandedHeight)
+        for _, b in ipairs(buttons) do b.Visible = true end
+        for _, l in ipairs(countLabels) do l.Visible = true end
+        foldBtn.Text = "▼"
+        folded = false
+    else
+        frame.Size = UDim2.new(0, 220, 0, foldedHeight)
+        for _, b in ipairs(buttons) do b.Visible = false end
+        for _, l in ipairs(countLabels) do l.Visible = false end
+        foldBtn.Text = "▲"
+        folded = true
+    end
+ 
+    task.wait(0.1)
+    foldInProgress = false
+end
+foldBtn.MouseButton1Click:Connect(toggleFold)
+
+local function makeBtn(name, text, y)
+    local b = Instance.new("TextButton", frame)
+    b.Name = name
+    b.Position = UDim2.new(0, 8, 0, y)
+    b.Size = UDim2.new(0, 130, 0, 30)
+    b.BackgroundColor3 = Color3.fromRGB(60, 60, 60)
+    b.TextColor3 = Color3.fromRGB(255, 255, 255)
+    b.Text = text
+    b.Font = Enum.Font.SourceSansBold
+    b.TextSize = 14
+    b.AutoButtonColor = true
+    Instance.new("UICorner", b).CornerRadius = UDim.new(0, 6)
+ 
+    local cl = Instance.new("TextLabel", frame)
+    cl.Size = UDim2.new(0, 65, 0, 30)
+    cl.Position = UDim2.new(0, 145, 0, y)
+    cl.BackgroundTransparency = 1
+    cl.TextColor3 = Color3.fromRGB(180, 180, 180)
+    cl.TextSize = 13
+    cl.Font = Enum.Font.SourceSans
+    cl.Text = "部屋: 0"
+    
+    table.insert(buttons, b)
+    table.insert(countLabels, cl)
+    return b
+end
+
+local godBtn = makeBtn("GodMode", "GodMode", 45)
+local radioBtn = makeBtn("RadioRoom", "RadioRoom", 85)
+local strongBtn = makeBtn("StrongboxRoom", "Strongbox", 125)
+local sweepBtn = makeBtn("SweepingRoom", "Sweeping", 165)
+
+-- --- パズル解決ロジック ---
+
+local godModeInProgress = false
+
+local function disableHidingGui()
+    local playerGui = Players.LocalPlayer:FindFirstChild("PlayerGui")
+    if playerGui then
+        for i = 1, 10 do 
+            local foundAndDisabled = false
+            for _, g in ipairs(playerGui:GetChildren()) do
+                if g:IsA("ScreenGui") and g.Name == "HidingUI" and g.Enabled == true then
+                    g.Enabled = false
+                    foundAndDisabled = true
+                end
+            end
+            if not foundAndDisabled then break end 
+            task.wait(0.1) 
+        end
+    end
+end
+
+local function processGodMode()
+    if godModeInProgress then return end 
+    godModeInProgress = true
+    local School = Workspace:FindFirstChild("School")
+    local hrp = getHRP()
+    if not School or not hrp then godModeInProgress = false return end
+
+    for _, lockerContainer in ipairs(School:GetDescendants()) do
+        if lockerContainer:IsA("Model") and lockerContainer.Name == "Locker" and lockerContainer:FindFirstChild("Door") then
+            local door = lockerContainer:FindFirstChild("Door")
+            local mesh = door and door:FindFirstChild("Meshes/locker_Cube.001")
+            if mesh then
+                hrp.CFrame = CFrame.new(mesh.Position)
+                task.wait(0.5) 
+                firePrompt(findPromptRecursive(mesh))
+                task.wait(2.0) 
+                local outside = lockerContainer:FindFirstChild("OutsidePromptPart") 
+                if outside and outside:IsA("BasePart") then
+                    hrp.CFrame = CFrame.new(outside.Position - outside.CFrame.LookVector*0.8, outside.Position)
+                    task.wait(0.2) 
+                    firePrompt(findPromptRecursive(outside))
+                    task.delay(1.5, disableHidingGui)
+                end
+                task.delay(1.0, function() godModeInProgress = false end) 
+                return 
+            end
+        end
+    end
+    task.delay(1.0, function() godModeInProgress = false end)
+end
+godBtn.MouseButton1Click:Connect(processGodMode)
+
+local function processRadioRoom()
+    local School = Workspace:FindFirstChild("School")
+    if not School then return end
+    for _, room in ipairs(School:GetChildren()) do
+        if room.Name:match("RadioRoom") then
+            task.spawn(function()
+                local radios = room.PuzzleObjects.Radios:GetChildren()
+                local workEvent = room:WaitForChild("PuzzleWork")
+                for _, radio in ipairs(radios) do
+                    task.spawn(function()
+                        local target = radio:WaitForChild("Target")
+                        local volume = radio:WaitForChild("Volume")
+                        local prompt = findPromptRecursive(radio)
+                        if not prompt then return end
+                        while prompt.Parent do
+                            local cv = volume.Value
+                            if cv < 0.9 then target.Value = math.min(target.Value + 0.04, 1)
+                            elseif cv > 1 then target.Value = math.max(target.Value - 0.02, 0) end
+                            workEvent:FireServer(radio, target.Value)
+                            task.wait(0.2)
+                        end
+                    end)
+                end
+            end)
+        end
+    end
+end
+radioBtn.MouseButton1Click:Connect(processRadioRoom)
+
+local function processStrongbox()
+    local School = Workspace:FindFirstChild("School")
+    if not School then return end
+    for _, room in ipairs(School:GetChildren()) do
+        local r = room:FindFirstChild("StrongboxRoom") or (room.Name=="StrongboxRoom" and room)
+        if r and r:FindFirstChild("PuzzleObjects") and r:FindFirstChild("PuzzleWork") then
+            local papers = r.PuzzleObjects:FindFirstChild("HintPapers")
+            local pw = r:FindFirstChild("PuzzleWork")
+            if papers and pw then
+                local code = ""
+                for _, obj in ipairs(papers:GetDescendants()) do
+                    if obj:IsA("TextLabel") then code = code .. obj.Text end
+                end
+                if code~="" then pw:FireServer(code) end
+            end
+        end
+    end
+end
+strongBtn.MouseButton1Click:Connect(processStrongbox)
+
+local function processSweepingRoom(room)
+    local objs = room:WaitForChild("PuzzleObjects")
+    local buttonLocations = objs:WaitForChild("ButtonLocations")
+    local sheet = objs:WaitForChild("Sheet").SurfaceGui.Frame
+    local entries = {}
+
+    local function getButtonPosition(prompt)
+        local parent = prompt.Parent
+        if parent:IsA("BasePart") then return parent.Position end
+        local p = findAnyPart(parent)
+        return p and p.Position or (getHRP().Position + Vector3.new(0,5,0))
+    end
+
+    local function handleButton(prompt)
+        local hrp = getHRP()
+        local pos = getButtonPosition(prompt)
+        hrp.CFrame = CFrame.new(pos + Vector3.new(0, 3, 0))
+        Camera.CFrame = CFrame.new(Camera.CFrame.Position, pos)
+        task.wait(0.15)
+        firePrompt(prompt)
+    end
+
+    for i = 1, 16 do
+        local labelObj = sheet:FindFirstChild(string.format("%03d", i))
+        local buttonObj = buttonLocations:FindFirstChild(tostring(i))
+        if labelObj and buttonObj then
+            local label = labelObj:FindFirstChild("Label")
+            if label then
+                local num = tonumber(string.match(label.Text, "<font.-%>(%d+)%</font%>")) or tonumber(string.match(label.Text, "%d+"))
+                if num then
+                    local p = findPromptRecursive(buttonObj)
+                    if p then table.insert(entries, {order = num, prompt = p}) end
+                end
+            end
+        end
+    end
+
+    table.sort(entries, function(a,b) return a.order < b.order end)
+    for _, e in ipairs(entries) do
+        handleButton(e.prompt)
+        task.wait(0.15)
+    end
+end
+
+sweepBtn.MouseButton1Click:Connect(function()
+    local School = Workspace:FindFirstChild("School")
+    if not School then return end
+    for _, room in ipairs(School:GetChildren()) do
+        if room.Name=="SweepingRoom" then
+            processSweepingRoom(room)
+            task.wait(0.5)
+        end
+    end
+end)
+
+-- --- 更新ループ ---
+
+local function countRooms(roomName)
+    local School = Workspace:FindFirstChild("School")
+    if not School then return 0 end
+    local c = 0
+    if roomName == "Locker" then
+        for _, obj in ipairs(School:GetDescendants()) do
+            if obj:IsA("Model") and obj.Name == "Locker" and obj:FindFirstChild("Door") then c = c + 1 end
+        end
+    else
+        for _, room in ipairs(School:GetChildren()) do
+            if room.Name:match(roomName) then c = c + 1 end
+        end
+    end
+    return c
+end
+
+task.spawn(function()
+    local lastCounts = {0,0,0,0}
+    local targets = {"Locker", "RadioRoom", "StrongboxRoom", "SweepingRoom"}
+    while true do
+        for i, name in ipairs(targets) do
+            local count = countRooms(name)
+            if count ~= lastCounts[i] then
+                countLabels[i].Text = "部屋: "..count
+                lastCounts[i] = count
+            end
+        end
+        task.wait(1.5)
+    end
+end)
+
+-- --- 画面比率に応じたサイズ調整 ---
+
+RunService.RenderStepped:Connect(function()
+    if not folded then
+        local fh = frame.AbsoluteSize.Y
+        for _, b in ipairs(buttons) do
+            -- 元スクリプトの比率（横0.55、縦0.12）を適用
+            b.Size = UDim2.new(0.55, 0, 0, fh * 0.12)
+        end
+    end
+end)
+end
+do
+
+local Workspace = game:GetService("Workspace")
+local Players = game:GetService("Players")
+local LocalPlayer = Players.LocalPlayer
+
+local function isTargetHierarchy(touchInterest)
+    if not touchInterest or touchInterest.Name ~= "TouchInterest" then return false end
+
+    local parent = touchInterest.Parent
+    if not parent then return false end
+
+    if parent.Name == "BabySpiderAreaPart" then
+        return true
+    end
+
+    if parent.Name == "Collision" then
+        local grandParent = parent.Parent
+        if grandParent and grandParent.Name == "BabySpiderPart" then
+            local greatGrandParent = grandParent.Parent
+            if greatGrandParent and greatGrandParent.Name == "BabySpiderAreaPart" then
+                return true
+            end
+        end
+    end
+    
+    return false
+end
+
+local function destroyTouchInterest(touchInterest)
+    if isTargetHierarchy(touchInterest) then
+        local parentName = touchInterest.Parent and touchInterest.Parent.Name or "UnknownParent"
+        touchInterest:Destroy()
+        print("【ローカル】TouchInterest削除成功: " .. parentName .. "の子から削除されました。")
+    end
+end
+
+local function monitorPart(descendant)
+    if descendant.Name == "BabySpiderAreaPart" then
+        descendant.DescendantAdded:Connect(destroyTouchInterest) 
+        
+        for _, child in ipairs(descendant:GetDescendants()) do
+            destroyTouchInterest(child)
+        end
+    end
+    
+    destroyTouchInterest(descendant)
+end
+
+local function processExistingParts()
+    for _, descendant in ipairs(Workspace:GetDescendants()) do
+        if descendant.Name == "BabySpiderAreaPart" then
+            monitorPart(descendant)
+        end
+    end
+end
+
+Workspace.DescendantAdded:Connect(monitorPart)
+
+if not LocalPlayer.Character or not LocalPlayer.Character.Parent then
+    LocalPlayer.CharacterAdded:Wait()
+end
+task.wait(1.5) 
+
+processExistingParts()
+end
+do
+
+local Players = game:GetService("Players")
+local CoreGui = game:GetService("CoreGui")
+local player = Players.LocalPlayer
+
+local screenGui = Instance.new("ScreenGui")
+screenGui.Name = "ReviveButtonGui"
+screenGui.Parent = CoreGui
+screenGui.ResetOnSpawn = false
+
+local button = Instance.new("TextButton")
+button.Parent = screenGui
+button.Size = UDim2.new(0, 220, 0, 60)
+button.Position = UDim2.new(0.5, -110, 0.85, 0)
+button.BackgroundColor3 = Color3.fromRGB(180, 180, 180)
+button.BackgroundTransparency = 0.3
+button.TextColor3 = Color3.fromRGB(0, 0, 0)
+button.Text = "蘇生を使う"
+button.Font = Enum.Font.GothamBold
+button.TextScaled = true
+button.Visible = false
+
+local corner = Instance.new("UICorner", button)
+corner.CornerRadius = UDim.new(0, 20)
+
+button.MouseButton1Click:Connect(function()
+    game:GetService("ReplicatedStorage")
+        :WaitForChild("InGame")
+        :WaitForChild("Instances")
+        :WaitForChild("RemoteEvent")
+        :WaitForChild("UseReviveAction")
+        :FireServer()
+end)
+
+local function updateVisibility()
+    local character = player.Character
+    if not character then
+        button.Visible = true
+        return
+    end
+    local humanoid = character:FindFirstChild("Humanoid")
+    if not humanoid then
+        button.Visible = true
+        return
+    end
+    if humanoid.Health <= 0 then
+        button.Visible = true
+    else
+        button.Visible = false
+    end
+end
+
+updateVisibility()
+
+player.CharacterAdded:Connect(function(char)
+    char:WaitForChild("Humanoid")
+    updateVisibility()
+    char.Humanoid:GetPropertyChangedSignal("Health"):Connect(function()
+        updateVisibility()
+    end)
+end)
+
+task.spawn(function()
+    while true do
+        updateVisibility()
+        task.wait(0.2)
+    end
+end)
+end
+do
+local Players = game:GetService("Players")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local CoreGui = game:GetService("CoreGui")
+local TweenService = game:GetService("TweenService")
+local RunService = game:GetService("RunService")
+local Workspace = game:GetService("Workspace")
+
+local player = Players.LocalPlayer
+
+-- [[ キャラクター・HRP管理 ]]
+local hrp
+local function updateHRP(char)
+    hrp = char:WaitForChild("HumanoidRootPart")
+end
+
+if player.Character then
+    updateHRP(player.Character)
+end
+player.CharacterAdded:Connect(updateHRP)
+
+-- [[ 納品(SafeArea)関連の処理 ]]
+local SafeAreaObj = ReplicatedStorage:WaitForChild("ObjectValues"):WaitForChild("SafeArea")
+
+local function getSafeAreaMainPart()
+    local area = SafeAreaObj.Value
+    if not area then return nil end
+    local loc = area:FindFirstChild("LocationCollision")
+    if not loc then return nil end
+    return loc:FindFirstChild("LocationCollisionMainPart")
+end
+
+local function fireSafeAreaTouch()
+    if not hrp then return end
+    local mainPart = getSafeAreaMainPart()
+    if not mainPart then return end
+    pcall(function()
+        -- Executor独自の関数 firetouchinterest を使用
+        firetouchinterest(hrp, mainPart, 0)
+        task.wait(0.05)
+        firetouchinterest(hrp, mainPart, 1)
+    end)
+end
+
+-- [[ UI作成 (最大サイズ 80px 制限版) ]]
+if CoreGui:FindFirstChild("SafeAreaButtonGui") then
+    CoreGui.SafeAreaButtonGui:Destroy()
+end
+
+local screenGui = Instance.new("ScreenGui")
+screenGui.Name = "SafeAreaButtonGui"
+screenGui.ResetOnSpawn = false
+screenGui.Parent = CoreGui
+
+local button = Instance.new("TextButton")
+
+-- 基本サイズは高さの15%だが、UISizeConstraintで制限をかける
+button.Size = UDim2.new(0.15, 0, 0.15, 0) 
+button.SizeConstraint = Enum.SizeConstraint.RelativeYY 
+button.Position = UDim2.new(0, 20, 0.2, 0) 
+
+-- ★ 最大サイズを 80px に設定
+local sizeConstraint = Instance.new("UISizeConstraint")
+sizeConstraint.MaxSize = Vector2.new(80, 80) -- ここを80に変更しました
+sizeConstraint.Parent = button
+
+button.BackgroundColor3 = Color3.fromRGB(50, 50, 50)
+button.BackgroundTransparency = 0.3
+button.TextColor3 = Color3.fromRGB(255, 255, 255)
+button.Font = Enum.Font.GothamBlack
+button.TextScaled = true 
+button.Text = "納品"
+button.AutoButtonColor = true
+button.Parent = screenGui
+button.Draggable = true 
+
+local corner = Instance.new("UICorner")
+corner.CornerRadius = UDim.new(0.5, 0) 
+corner.Parent = button
+
+-- ボタンのアニメーション
+button.MouseEnter:Connect(function()
+    TweenService:Create(button, TweenInfo.new(0.15), {BackgroundTransparency = 0.1}):Play()
+end)
+button.MouseLeave:Connect(function()
+    TweenService:Create(button, TweenInfo.new(0.15), {BackgroundTransparency = 0.3}):Play()
+end)
+
+-- クリックで納品実行
+button.MouseButton1Click:Connect(fireSafeAreaTouch)
+
+-- [[ その他ユーティリティ関数 (機能維持) ]]
+local function getHRP_Func()
+    local char = player.Character or player.CharacterAdded:Wait()
+    return char:WaitForChild("HumanoidRootPart")
+end
+
+local function firePrompt(prompt)
+    if prompt and prompt.Parent then
+        fireproximityprompt(prompt)
+    end
+end
+
+local function findPromptRecursive(item)
+    if item:IsA("ProximityPrompt") then return item end
+    for _, c in ipairs(item:GetChildren()) do
+        local p = findPromptRecursive(c)
+        if p then return p end
+    end
+end
+
+local function findAnyPart(model)
+    if model:IsA("BasePart") then return model end
+    for _, c in ipairs(model:GetChildren()) do
+        local p = findAnyPart(c)
+        if p then return p end
+    end
+end
+end
+do
+
+local GUI_NAME = "SmartRoomSolveGUI"
+local CoreGui = game:GetService("CoreGui")
+local Players = game:GetService("Players")
+local Workspace = game:GetService("Workspace")
+
+-- 既存のGUIを削除
+if CoreGui:FindFirstChild(GUI_NAME) then
+    CoreGui[GUI_NAME]:Destroy()
+end
+
+local gui = Instance.new("ScreenGui")
+gui.Name = GUI_NAME
+gui.Parent = CoreGui
+gui.DisplayOrder = 0 
+gui.IgnoreGuiInset = true
+
+-- 【メインフレーム】ドラッグ用
+local mainFrame = Instance.new("Frame")
+mainFrame.Name = "DraggableFrame"
+mainFrame.AnchorPoint = Vector2.new(0.5, 0.5)
+mainFrame.Position = UDim2.new(0.5, 0, 0.3, 0) -- 少し上に配置
+mainFrame.Size = UDim2.new(0, 200, 0, 30) -- 横幅を200に縮小
+mainFrame.BackgroundTransparency = 1
+mainFrame.Active = true
+mainFrame.Draggable = true
+mainFrame.Parent = gui
+
+-- 【内容フレーム】
+local contentFrame = Instance.new("Frame")
+contentFrame.Name = "ContentFrame"
+contentFrame.Size = UDim2.new(1, 0, 0, 120) -- 全体高さも120に凝縮
+contentFrame.BackgroundColor3 = Color3.fromRGB(30, 30, 30)
+contentFrame.BorderSizePixel = 0
+contentFrame.ClipsDescendants = true 
+contentFrame.Parent = mainFrame
+Instance.new("UICorner", contentFrame).CornerRadius = UDim.new(0, 8)
+
+-- タイトル
+local title = Instance.new("TextLabel", contentFrame)
+title.Size = UDim2.new(1, -35, 0, 30)
+title.Position = UDim2.new(0, 8, 0, 0)
+title.BackgroundTransparency = 1
+title.Text = "Smart Room Solve"
+title.TextColor3 = Color3.fromRGB(255, 255, 255)
+title.TextSize = 14 -- 少し小さく
+title.Font = Enum.Font.SourceSansBold
+title.TextXAlignment = Enum.TextXAlignment.Left
+
+-- 折り畳みボタン
+local foldBtn = Instance.new("TextButton", contentFrame)
+foldBtn.Size = UDim2.new(0, 25, 0, 20)
+foldBtn.Position = UDim2.new(1, -5, 0, 5)
+foldBtn.AnchorPoint = Vector2.new(1, 0)
+foldBtn.Text = "▼"
+foldBtn.TextSize = 14
+foldBtn.BackgroundColor3 = Color3.fromRGB(80, 80, 80)
+foldBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+foldBtn.Font = Enum.Font.SourceSansBold
+Instance.new("UICorner", foldBtn).CornerRadius = UDim.new(0, 4)
+
+-- 実行ボタン
+local smartSolveBtn = Instance.new("TextButton", contentFrame)
+smartSolveBtn.Name = "SmartSolve"
+smartSolveBtn.Position = UDim2.new(0, 8, 0, 38)
+smartSolveBtn.Size = UDim2.new(1, -16, 0, 35) 
+smartSolveBtn.BackgroundColor3 = Color3.fromRGB(130, 40, 40) 
+smartSolveBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+smartSolveBtn.Text = "Solve Current Room"
+smartSolveBtn.TextSize = 16
+smartSolveBtn.Font = Enum.Font.SourceSansBold
+Instance.new("UICorner", smartSolveBtn).CornerRadius = UDim.new(0, 6)
+
+-- 状態ラベル
+local roomLabel = Instance.new("TextLabel", contentFrame)
+roomLabel.Size = UDim2.new(1, -16, 0, 30)
+roomLabel.Position = UDim2.new(0, 8, 0, 80) 
+roomLabel.BackgroundTransparency = 1
+roomLabel.TextColor3 = Color3.fromRGB(180, 180, 180)
+roomLabel.TextSize = 14
+roomLabel.Font = Enum.Font.SourceSans
+roomLabel.Text = "Room: Searching..."
+
+--- 【折り畳みロジック】 ---
+local folded = false
+local function toggleFold()
+    if folded then
+        contentFrame.Size = UDim2.new(1, 0, 0, 120)
+        foldBtn.Text = "▼"
+        folded = false
+    else
+        contentFrame.Size = UDim2.new(1, 0, 0, 30)
+        foldBtn.Text = "▲"
+        folded = true
+    end
+end
+foldBtn.MouseButton1Click:Connect(toggleFold)
+
+--- [パズルロジック] ---
+local function getHRP() return Players.LocalPlayer.Character and Players.LocalPlayer.Character:FindFirstChild("HumanoidRootPart") end
+local function findAnyPart(obj) for _, child in ipairs(obj:GetDescendants()) do if child:IsA("BasePart") then return child end end return nil end
+local function findPromptRecursive(obj) return obj:FindFirstChildWhichIsA("ProximityPrompt", true) end
+local function firePrompt(prompt) if prompt and fireproximityprompt then fireproximityprompt(prompt) end end
+
+local activeRadioRoomProcesses = {} 
+local function processRadioRoom(room)
+    if activeRadioRoomProcesses[room] then return end
+    local isRoomActive = true
+    activeRadioRoomProcesses[room] = isRoomActive
+    task.spawn(function()
+        local radios = room.PuzzleObjects.Radios:GetChildren()
+        local workEvent = room:WaitForChild("PuzzleWork")
+        while room.Parent and isRoomActive do
+            local completedRadios = 0
+            for _, radio in ipairs(radios) do
+                local target, volume = radio:WaitForChild("Target"), radio:WaitForChild("Volume")
+                local prompt = radio.base and radio.base.Attachment and findPromptRecursive(radio.base.Attachment)
+                if not prompt or not prompt.Parent then completedRadios = completedRadios + 1 continue end
+                if volume.Value < 0.9 then target.Value = math.min(target.Value + 0.04, 1) elseif volume.Value > 1 then target.Value = math.max(target.Value - 0.02, 0) end
+                workEvent:FireServer(radio, target.Value)
+            end
+            if completedRadios == #radios then isRoomActive = false break end
+            task.wait(0.2)
+        end
+        activeRadioRoomProcesses[room] = nil 
+    end)
+end
+
+local function processStrongboxRoom(room)
+    local papers, pw = room.PuzzleObjects:FindFirstChild("HintPapers"), room:FindFirstChild("PuzzleWork")
+    if papers and pw then
+        local code = ""
+        for _, obj in ipairs(papers:GetDescendants()) do if obj:IsA("TextLabel") then code = code .. obj.Text end end
+        if code ~= "" then pw:FireServer(code) return true end
+    end
+    return false
+end
+
+local function processSweepingRoom(room)
+    local objs = room:WaitForChild("PuzzleObjects")
+    local buttonLocations, sheet = objs:WaitForChild("ButtonLocations"), objs:WaitForChild("Sheet").SurfaceGui.Frame
+    local Camera, entries = Workspace.CurrentCamera, {}
+    local function handleButton(prompt)
+        local hrp = getHRP() if not hrp then return end
+        local parent = prompt.Parent
+        local pos = parent:IsA("BasePart") and parent.Position or (findAnyPart(parent) and findAnyPart(parent).Position) or (Camera.CFrame.Position + Camera.CFrame.LookVector * 5)
+        hrp.CFrame = CFrame.new(pos + Vector3.new(0, 3, 0))
+        Camera.CFrame = CFrame.new(Camera.CFrame.Position, pos)
+        task.wait(0.15) firePrompt(prompt)
+    end
+    for i = 1, 16 do
+        local labelObj, buttonObj = sheet:FindFirstChild(string.format("%03d", i)), buttonLocations:FindFirstChild(tostring(i))
+        if labelObj and buttonObj then
+            local label = labelObj:FindFirstChild("Label")
+            local prompt = findPromptRecursive(buttonObj)
+            if label and prompt then
+                local num = tonumber(string.match(label.Text, "<font.-%>(%d+)%</font%>"))
+                if num then table.insert(entries, {order = num, prompt = prompt}) end
+            end
+        end
+    end
+    for _, e in ipairs(entries) do if e.order == 4 then handleButton(e.prompt) task.wait(0.2) end end
+    table.sort(entries, function(a,b) return a.order < b.order end)
+    for _, e in ipairs(entries) do handleButton(e.prompt) task.wait(0.15) end
+    return true
+end
+
+local solveInProgress = false
+smartSolveBtn.MouseButton1Click:Connect(function()
+    if solveInProgress then return end 
+    solveInProgress = true
+    roomLabel.Text = "Processing..."
+    local School, hrp = Workspace:FindFirstChild("School"), getHRP()
+    if not School or not hrp then roomLabel.Text = "Error" solveInProgress = false return end
+    local bestRoom, roomType, minDistance = nil, nil, 25
+    for _, room in ipairs(School:GetChildren()) do
+        for _, targetType in ipairs({"RadioRoom", "StrongboxRoom", "SweepingRoom"}) do
+            if room.Name:match(targetType) then
+                local part = findAnyPart(room)
+                if part and (part.Position - hrp.Position).Magnitude < minDistance then
+                    minDistance = (part.Position - hrp.Position).Magnitude
+                    bestRoom, roomType = room, targetType
+                end
+            end
+        end
+    end
+    if bestRoom then
+        roomLabel.Text = "Detect: " .. roomType
+        task.wait(0.5)
+        if roomType == "RadioRoom" then processRadioRoom(bestRoom) solveInProgress = false
+        elseif roomType == "StrongboxRoom" then if processStrongboxRoom(bestRoom) then roomLabel.Text = "Success" end task.delay(1.5, function() solveInProgress = false end)
+        elseif roomType == "SweepingRoom" then if processSweepingRoom(bestRoom) then roomLabel.Text = "Success" end task.delay(1.5, function() solveInProgress = false end) end
+    else
+        roomLabel.Text = "No Room Nearby" solveInProgress = false
+    end
+end)
+
+task.spawn(function()
+    while true do
+        local hrp, School = getHRP(), Workspace:FindFirstChild("School")
+        if hrp and School and not solveInProgress then
+            local closest = "None"
+            for _, room in ipairs(School:GetChildren()) do
+                local part = findAnyPart(room)
+                if part and (part.Position - hrp.Position).Magnitude < 25 then
+                    if room.Name:match("RadioRoom") then closest = "RadioRoom" break
+                    elseif room.Name:match("StrongboxRoom") then closest = "StrongboxRoom" break
+                    elseif room.Name:match("SweepingRoom") then closest = "SweepingRoom" break end
+                end
+            end
+            roomLabel.Text = "Room: " .. closest
+        end
+        task.wait(0.5)
+    end
+end)
+end
+
+do
+-- すべての local を排除
+ReplicatedStorage = game:GetService("ReplicatedStorage")
+Players = game:GetService("Players")
+UserInputService = game:GetService("UserInputService")
+
+-- 状態管理もグローバルに配置
+SafeZoneState = {
+    player = Players.LocalPlayer,
+    character = nil,
+    hrp = nil,
+    isEnabled = false,
+    dragging = false,
+    dragInput = nil,
+    dragStart = nil,
+    startPos = nil
+}
+
+SafeZoneState.character = SafeZoneState.player.Character or SafeZoneState.player.CharacterAdded:Wait()
+SafeZoneState.hrp = SafeZoneState.character:WaitForChild("HumanoidRootPart")
+
+SafeZoneState.player.CharacterAdded:Connect(function(newCharacter)
+    SafeZoneState.character = newCharacter
+    SafeZoneState.hrp = newCharacter:WaitForChild("HumanoidRootPart")
+end)
+
+screenGui = Instance.new("ScreenGui")
+screenGui.Name = "SimpleSafeZoneGui"
+screenGui.ResetOnSpawn = false
+screenGui.Parent = SafeZoneState.player:WaitForChild("PlayerGui")
+
+button = Instance.new("TextButton")
+button.Size = UDim2.new(0.15, 0, 0.06, 0)
+button.Position = UDim2.new(0.02, 0, 0.02, 0) -- 左上
+
+uiSizeConstraint = Instance.new("UISizeConstraint")
+uiSizeConstraint.MinSize = Vector2.new(100, 40)
+uiSizeConstraint.Parent = button
+
+button.BackgroundColor3 = Color3.fromRGB(200, 0, 0)
+button.Text = "セーフエリア: OFF"
+button.TextColor3 = Color3.fromRGB(255, 255, 255)
+button.Font = Enum.Font.SourceSansBold
+button.TextScaled = true
+button.Parent = screenGui
+button.Active = true
+
+uiCorner = Instance.new("UICorner")
+uiCorner.CornerRadius = UDim.new(0.2, 0)
+uiCorner.Parent = button
+
+-- ドラッグ機能（localなし）
+button.InputBegan:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+        SafeZoneState.dragging = true
+        SafeZoneState.dragStart = input.Position
+        SafeZoneState.startPos = button.Position
+        input.Changed:Connect(function()
+            if input.UserInputState == Enum.UserInputState.End then SafeZoneState.dragging = false end
+        end)
+    end
+end)
+
+button.InputChanged:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch then 
+        SafeZoneState.dragInput = input 
+    end
+end)
+
+UserInputService.InputChanged:Connect(function(input)
+    if input == SafeZoneState.dragInput and SafeZoneState.dragging then
+        delta = input.Position - SafeZoneState.dragStart
+        button.Position = UDim2.new(SafeZoneState.startPos.X.Scale, SafeZoneState.startPos.X.Offset + delta.X, SafeZoneState.startPos.Y.Scale, SafeZoneState.startPos.Y.Offset + delta.Y)
+    end
+end)
+
+-- 関数もグローバルとして定義
+function getSafeAreaMainPart()
+    safeAreaFolder = ReplicatedStorage:FindFirstChild("ObjectValues")
+    if not safeAreaFolder then return nil end
+    SafeAreaObj = safeAreaFolder:FindFirstChild("SafeArea")
+    if not (SafeAreaObj and SafeAreaObj.Value) then return nil end
+    
+    area = SafeAreaObj.Value
+    loc = area:FindFirstChild("LocationCollision")
+    if not loc then return nil end
+    return loc:FindFirstChild("LocationCollisionMainPart")
+end
+
+button.MouseButton1Click:Connect(function()
+    SafeZoneState.isEnabled = not SafeZoneState.isEnabled
+    if SafeZoneState.isEnabled then
+        button.Text = "セーフエリア: ON"
+        button.BackgroundColor3 = Color3.fromRGB(0, 200, 0)
+    else
+        button.Text = "セーフエリア: OFF"
+        button.BackgroundColor3 = Color3.fromRGB(200, 0, 0)
+    end
+end)
+
+task.spawn(function()
+    while true do
+        if SafeZoneState.isEnabled and SafeZoneState.hrp then
+            mainPart = getSafeAreaMainPart()
+            if mainPart then
+                pcall(function()
+                    firetouchinterest(SafeZoneState.hrp, mainPart, 0)
+                    task.wait(0.05)
+                    firetouchinterest(SafeZoneState.hrp, mainPart, 1)
+                end)
+            end
+        end
+        task.wait(0.1)
+    end
+end)
+end
+do
+local Rayfield = loadstring(game:HttpGet('https://sirius.menu/rayfield'))()
+local player = game.Players.LocalPlayer
+local UserInputService = game:GetService("UserInputService")
+local RunService = game:GetService("RunService")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local CoreGui = game:GetService("CoreGui")
+
+local State = {
+    autoModify = false,
+    bypassEnabled = false,
+    isBodyVisible = true,
+    teleports = {},
+    lastReset = 0,
+    -- Movement設定
+    walkSpeed = 16,
+    jumpPower = 50,
+    speedEnabled = false,
+    jumpPowerEnabled = false, -- ジャンプ力反映の独立フラグ
+    jumpButtonVisible = false, -- ボタン表示の独立フラグ
+    infJump = false,
+    -- Diamond Farm設定
+    diamondFarmEnabled = false
+}
+
+-- ViewModelの退避用ストレージ
+local vmStorage = Instance.new("Folder")
+vmStorage.Name = "HiddenVMStorage"
+vmStorage.Parent = ReplicatedStorage
+
+-- --- ユーティリティ関数 ---
+local function getSchoolFolder()
+    return workspace:FindFirstChild("School")
+end
+
+local function getItemContainer()
+    local school = getSchoolFolder()
+    return school and school:FindFirstChild("Item")
+end
+
+local TARGET_NAME = "DiamondBottle"
+local SAFE_AREA_VAL = ReplicatedStorage:WaitForChild("ObjectValues"):WaitForChild("SafeArea")
+
+-- [カスタムジャンプボタン]
+local JumpGui = Instance.new("ScreenGui")
+JumpGui.Name = "CustomJumpGui"
+JumpGui.Parent = CoreGui
+JumpGui.Enabled = false 
+
+local JumpButton = Instance.new("TextButton")
+JumpButton.Name = "JumpButton"
+JumpButton.Parent = JumpGui
+JumpButton.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
+JumpButton.BackgroundTransparency = 0.8
+JumpButton.Position = UDim2.new(1, -150, 1, -150) 
+JumpButton.Size = UDim2.new(0, 90, 0, 90)
+JumpButton.Text = ""
+
+local InnerFrame = Instance.new("Frame")
+InnerFrame.Size = UDim2.new(0.6, 0, 0.6, 0)
+InnerFrame.Position = UDim2.new(0.2, 0, 0.2, 0)
+InnerFrame.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
+InnerFrame.BackgroundTransparency = 0.5
+InnerFrame.Parent = JumpButton
+Instance.new("UICorner", InnerFrame).CornerRadius = UDim.new(1, 0)
+Instance.new("UICorner", JumpButton).CornerRadius = UDim.new(1, 0)
+
+JumpButton.MouseButton1Click:Connect(function()
+    -- ボタン表示設定がONの時のみ動作
+    if not State.jumpButtonVisible then return end
+    
+    local char = player.Character
+    local hrp = char and char:FindFirstChild("HumanoidRootPart")
+    local hum = char and char:FindFirstChildOfClass("Humanoid")
+    if hrp and hum then
+        if hum.FloorMaterial ~= Enum.Material.Air or State.infJump then
+            -- ジャンプ力反映がONならState.jumpPowerを、OFFならデフォルト(50)を使用
+            local power = State.jumpPowerEnabled and State.jumpPower or 50
+            hrp.Velocity = Vector3.new(hrp.Velocity.X, power, hrp.Velocity.Z)
+        end
+    end
+end)
+
+-- [Diamond Farm 処理関数]
+local function processDiamondItem(item)
+    if not State.diamondFarmEnabled or item.Name ~= TARGET_NAME then return end
+
+    local char = player.Character
+    local hrp = char and char:FindFirstChild("HumanoidRootPart")
+    if not char or not hrp then return end
+
+    local targetCFrame = item:IsA("Model") and item:GetPivot() or item:IsA("BasePart") and item.CFrame
+    if not targetCFrame then return end
+
+    char:PivotTo(targetCFrame)
+    task.wait(0.3) 
+
+    local prompt = item:FindFirstChildOfClass("ProximityPrompt") or item:FindFirstChildWhichIsA("ProximityPrompt", true)
+    if prompt then
+        char:PivotTo(targetCFrame)
+        for i = 1, 3 do
+            fireproximityprompt(prompt)
+            task.wait(0.05)
+        end
+    end
+    task.wait(0.05)
+
+    local safeCFrame = targetCFrame * CFrame.new(0, 100, 0)
+    char:PivotTo(safeCFrame)
+    task.wait(0.05)
+
+    local currentRoom = SAFE_AREA_VAL.Value
+    if currentRoom then
+        local collisionFolder = currentRoom:FindFirstChild("LocationCollision")
+        local mainPart = collisionFolder and collisionFolder:FindFirstChild("LocationCollisionMainPart")
+        if mainPart then
+            firetouchinterest(hrp, mainPart, 0)
+            task.wait(0.02)
+            firetouchinterest(hrp, mainPart, 1)
+        end
+    end
+end
+
+local function scanAllDiamonds()
+    if not State.diamondFarmEnabled then return end
+    local container = getItemContainer()
+    if not container then return end
+    for _, item in ipairs(container:GetChildren()) do
+        processDiamondItem(item)
+        if not State.diamondFarmEnabled then break end
+    end
+end
+
+-- [GUI作成]
+local Window = Rayfield:CreateWindow({
+   Name = "You are BANNED Hub",
+   LoadingTitle = "たなかかなた",
+   LoadingSubtitle = "by Msathi",
+   ConfigurationSaving = { Enabled = false }
+})
+
+-- [Mainタブ]
+local function setupPrompt(v)
+    if v:IsA("ProximityPrompt") then
+        if State.autoModify then
+            v.MaxActivationDistance = 9e9
+            v.HoldDuration = 0
+            v.RequiresLineOfSight = false
+            if not v:GetAttribute("Connected") then
+                v:SetAttribute("Connected", true)
+                v.Triggered:Connect(function(p)
+                    if p == player and State.autoModify and not State.teleports[v] then
+                        local root = player.Character and player.Character:FindFirstChild("HumanoidRootPart")
+                        if root and v.Parent:IsA("BasePart") then
+                            State.teleports[v] = true
+                            root.CFrame = v.Parent.CFrame
+                            task.wait(0.2)
+                            fireproximityprompt(v)
+                            task.delay(3, function() State.teleports[v] = nil end)
+                        end
+                    end
+                end)
+            end
+        else
+            v.MaxActivationDistance = 10
+            v:SetAttribute("Connected", nil)
+        end
+    end
+end
+
+local function connectItemFolder()
+    local itemFolder = getItemContainer()
+    if not itemFolder then return end
+
+    for _, v in pairs(itemFolder:GetDescendants()) do setupPrompt(v) end
+
+    if not itemFolder:GetAttribute("Watched") then
+        itemFolder:SetAttribute("Watched", true)
+        itemFolder.ChildAdded:Connect(function(child)
+            if State.diamondFarmEnabled then
+                task.wait(0.2)
+                processDiamondItem(child)
+            end
+        end)
+        itemFolder.DescendantAdded:Connect(function(descendant)
+            if State.autoModify then task.wait(0.5) setupPrompt(descendant) end
+        end)
+    end
+end
+
+local MainTab = Window:CreateTab("Main", 4483362458)
+MainTab:CreateToggle({
+   Name = "遠隔プロンプト & TP回収",
+   CurrentValue = false,
+   Callback = function(Value)
+      State.autoModify = Value
+      connectItemFolder()
+   end,
+})
+
+MainTab:CreateToggle({
+    Name = "Diamond Auto Farm",
+    CurrentValue = false,
+    Callback = function(Value)
+        State.diamondFarmEnabled = Value
+        if Value then 
+            connectItemFolder()
+            task.spawn(scanAllDiamonds) 
+        end
+    end,
+})
+
+-- [Movementタブ]
+local MoveTab = Window:CreateTab("Movement", 4483362458)
+MoveTab:CreateToggle({
+    Name = "Speed Hack",
+    CurrentValue = false,
+    Callback = function(v) State.speedEnabled = v end
+})
+MoveTab:CreateSlider({
+    Name = "WalkSpeed", Range = {16, 200}, Increment = 1, Suffix = "Speed", CurrentValue = 16,
+    Callback = function(v) State.walkSpeed = v end
+})
+
+-- ここを分割しました
+MoveTab:CreateToggle({
+    Name = "Jump Hack (ジャンプ力反映)",
+    CurrentValue = false,
+    Callback = function(v) State.jumpPowerEnabled = v end
+})
+MoveTab:CreateToggle({
+    Name = "Jump Button (ボタン表示)",
+    CurrentValue = false,
+    Callback = function(v) State.jumpButtonVisible = v JumpGui.Enabled = v end
+})
+
+MoveTab:CreateSlider({
+    Name = "JumpPower", Range = {50, 500}, Increment = 1, Suffix = "Power", CurrentValue = 50,
+    Callback = function(v) State.jumpPower = v end
+})
+MoveTab:CreateToggle({
+    Name = "Infinite Jump",
+    CurrentValue = false,
+    Callback = function(v) State.infJump = v end
+})
+
+-- [Bypassタブ]
+local BypassTab = Window:CreateTab("Bypass", 4483362458)
+BypassTab:CreateToggle({
+   Name = "バイパス & ツール生成",
+   CurrentValue = false,
+   Callback = function(Value)
+      State.bypassEnabled = Value
+      if State.bypassEnabled then
+          local bList = {
+              game.ReplicatedStorage:FindFirstChild("InGame") and game.ReplicatedStorage.InGame.Instances.RemoteEvent:FindFirstChild("CutsceneClient"),
+              game.ReplicatedStorage:FindFirstChild("InGame") and game.ReplicatedStorage.InGame.Instances.RemoteEvent:FindFirstChild("BlackboardResult"),
+              game.ReplicatedStorage:FindFirstChild("SoundHandler") and game.ReplicatedStorage.SoundHandler:FindFirstChild("ReplicatePlay"),
+          }
+          for _, e in pairs(bList) do 
+              if e then 
+                  for _, c in pairs(getconnections(e.OnClientEvent)) do 
+                      c:Disable() 
+                  end 
+              end 
+          end
+          
+          if not (player.Backpack:FindFirstChild("BodyVisibility") or (player.Character and player.Character:FindFirstChild("BodyVisibility"))) then
+              local tool = Instance.new("Tool")
+              tool.Name = "BodyVisibility"
+              tool.RequiresHandle = false
+              tool.CanBeDropped = false
+              tool.Activated:Connect(function()
+                  State.isBodyVisible = not State.isBodyVisible
+                  Rayfield:Notify({Title = "Body Visibility", Content = "表示状態: " .. tostring(State.isBodyVisible), Duration = 2})
+              end)
+              tool.Parent = player.Backpack
+          end
+      else
+          local t = player.Backpack:FindFirstChild("BodyVisibility") or (player.Character and player.Character:FindFirstChild("BodyVisibility"))
+          if t then t:Destroy() end
+      end
+   end,
+})
+
+-- 入力処理
+UserInputService.JumpRequest:Connect(function()
+    if State.infJump then
+        local char = player.Character
+        local hum = char and char:FindFirstChildOfClass("Humanoid")
+        if hum then hum:ChangeState(Enum.HumanoidStateType.Jumping) end
+    end
+end)
+
+-- ループ処理
+RunService.RenderStepped:Connect(function()
+    local char = player.Character
+    local hum = char and char:FindFirstChildOfClass("Humanoid")
+    local head = char and char:FindFirstChild("Head")
+    local camera = workspace.CurrentCamera
+
+    if char and hum then
+        if State.speedEnabled then hum.WalkSpeed = State.walkSpeed end
+        -- ジャンプ力反映がONの時だけ適用する
+        if State.jumpPowerEnabled then 
+            hum.JumpPower = State.jumpPower 
+        else
+            hum.JumpPower = 50 -- デフォルト値
+        end
+    end
+
+    local clientFolder = workspace:FindFirstChild("Client")
+    if clientFolder then
+        local viewModel = clientFolder:FindFirstChild("characterViewModel")
+        if State.bypassEnabled then
+            if viewModel then viewModel.Parent = vmStorage end
+        else
+            local hiddenVM = vmStorage:FindFirstChild("characterViewModel")
+            if hiddenVM then hiddenVM.Parent = clientFolder end
+        end
+    end
+
+    if State.bypassEnabled and camera then
+        if player:GetAttribute("inCutScene") == true or camera.CameraType == Enum.CameraType.Scriptable then
+            if tick() - State.lastReset > 0.5 then
+                State.lastReset = tick()
+                local oldFOV, oldCFrame = camera.FieldOfView, camera.CFrame
+                camera:Destroy()
+                local newCamera = Instance.new("Camera")
+                newCamera.Parent = workspace
+                newCamera.FieldOfView = oldFOV
+                newCamera.CFrame = oldCFrame
+                newCamera.CameraType = Enum.CameraType.Custom
+                newCamera.CameraSubject = hum
+                workspace.CurrentCamera = newCamera
+            end
+        end
+        player:SetAttribute("inCutScene", false)
+        player:SetAttribute("isMoveable", true)
+        
+        if head then
+            local distance = (camera.CFrame.Position - head.Position).Magnitude
+            local isFirstPerson = distance < 2.5
+            for _, part in pairs(char:GetDescendants()) do
+                if (part:IsA("BasePart") or part:IsA("Decal")) and part.Name ~= "HumanoidRootPart" then
+                    if not State.isBodyVisible or isFirstPerson then
+                        part.LocalTransparencyModifier = 1
+                    else
+                        part.LocalTransparencyModifier = 0
+                    end
+                end
+            end
+        end
+    end
+end)
+
+workspace.ChildAdded:Connect(function(child)
+    if child.Name == "School" then
+        task.wait(1.5)
+        connectItemFolder()
+        if State.diamondFarmEnabled then scanAllDiamonds() end
+    end
+end)
+
+player.CharacterAdded:Connect(function()
+    if State.bypassEnabled then
+        task.wait(1)
+        if not player.Backpack:FindFirstChild("BodyVisibility") then
+            local tool = Instance.new("Tool")
+            tool.Name = "BodyVisibility"
+            tool.RequiresHandle = false
+            tool.Parent = player.Backpack
+        end
+    end
+end)
+
+workspace.DescendantAdded:Connect(setupPrompt)
+
+task.spawn(function()
+    while true do
+        if State.diamondFarmEnabled then scanAllDiamonds() end
+        task.wait(2)
+    end
+end)
+
+connectItemFolder()
+end
+do
+if game.PlaceId ~= 139394229148664 then return end
+
+local lp = game:GetService("Players").LocalPlayer
+local UIS = game:GetService("UserInputService")
+local sg = Instance.new("ScreenGui", game:GetService("CoreGui"))
+
+-- UI構築 (160x200の超コンパクトサイズ)
+local f = Instance.new("Frame", sg)
+f.Size, f.Position, f.BackgroundColor3, f.Active = UDim2.new(0, 160, 0, 200), UDim2.new(0, 10, 0, 10), Color3.fromRGB(20, 20, 20), true
+Instance.new("UICorner", f)
+
+local t = Instance.new("TextButton", f)
+t.Size, t.BackgroundColor3, t.Text, t.TextColor3, t.TextSize = UDim2.new(1, 0, 0, 25), Color3.fromRGB(40, 40, 40), "Menu [-]", Color3.new(1,1,1), 12
+Instance.new("UICorner", t)
+
+local s = Instance.new("ScrollingFrame", f)
+s.Size, s.Position, s.BackgroundTransparency, s.ScrollBarThickness = UDim2.new(1, 0, 1, -25), UDim2.new(0, 0, 0, 25), 1, 2
+local l = Instance.new("UIListLayout", s)
+
+-- ドラッグ & 開閉
+local d, ds, sp, tm
+t.InputBegan:Connect(function(i) if i.UserInputType.Value == 0 or i.UserInputType.Value == 7 then d, ds, sp, tm = true, i.Position, f.Position, tick() end end)
+UIS.InputChanged:Connect(function(i) if d and (i.UserInputType.Value == 4 or i.UserInputType.Value == 7) then 
+    local del = i.Position - ds
+    f.Position = UDim2.new(sp.X.Scale, sp.X.Offset + del.X, sp.Y.Scale, sp.Y.Offset + del.Y)
+end end)
+UIS.InputEnded:Connect(function(i) if d and (i.UserInputType.Value == 0 or i.UserInputType.Value == 7) then 
+    if tm and (tick() - tm) < 0.15 then 
+        local o = t.Text:find("-")
+        f:TweenSize(UDim2.new(0, 160, 0, o and 25 or 200), 1, 4, 0.2, true)
+        s.Visible, t.Text = not o, "Menu "..(o and "[+]" or "[-]")
+    end
+    d = false 
+end end)
+
+-- メインループ (Usernameのみ表示)
+task.spawn(function()
+    while task.wait(1.5) do
+        if t.Text:find("-") then
+            for _, v in pairs(s:GetChildren()) do if v:IsA("TextButton") then v:Destroy() end end
+            local plrs = { "All" }
+            for _, p in pairs(game:GetService("Players"):GetPlayers()) do
+                if p ~= lp and p.Character and p.Character:FindFirstChild("Humanoid") and p.Character.Humanoid.Health > 0 then table.insert(plrs, p) end
+            end
+            for _, target in pairs(plrs) do
+                local b = Instance.new("TextButton", s)
+                b.Size, b.BackgroundColor3, b.Text, b.TextColor3, b.TextSize = UDim2.new(1, -4, 0, 25), (target == "All" and Color3.fromRGB(80, 20, 20) or Color3.fromRGB(35, 35, 35)), (target == "All" and "BRING ALL" or target.Name), Color3.new(1,1,1), 10
+                Instance.new("UICorner", b)
+                b.MouseButton1Click:Connect(function()
+                    local h = lp.Character and lp.Character:FindFirstChild("HumanoidRootPart")
+                    if not h then return end
+                    for _, v in pairs(target == "All" and game:GetService("Players"):GetPlayers() or {target}) do
+                        if v ~= lp and v.Character and v.Character:FindFirstChild("HumanoidRootPart") then v.Character.HumanoidRootPart.CFrame = h.CFrame end
+                    end
+                end)
+            end
+            s.CanvasSize = UDim2.new(0, 0, 0, l.AbsoluteContentSize.Y)
+        end
+    end
+end)
+end
