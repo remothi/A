@@ -1,0 +1,34 @@
+-- あなたのGitHub Raw URL
+local githubUrl = "https://raw.githubusercontent.com/remothi/A/refs/heads/main/Auto"
+
+local function start()
+    -- 1. GitHubからコードを取得
+    local success, content = pcall(game.HttpGet, game, githubUrl)
+    
+    if success and content then
+        -- 2. テレポート予約 (Delta/Fluxus/Synapse対応)
+        local qot = queue_on_teleport or (syn and syn.queue_on_teleport) or (fluxus and fluxus.queue_on_teleport)
+        if qot then
+            -- 次の場所でもこのGitHub URLを読み込むように予約
+            pcall(function()
+                qot('loadstring(game:HttpGet("' .. githubUrl .. '"))()')
+            end)
+        end
+        
+        -- 3. 実行 (エラーが起きても止まらないようにWrap)
+        local func, err = loadstring(content)
+        if func then
+            local runSuccess, runErr = pcall(func)
+            if not runSuccess then
+                warn("実行中にエラーが発生しました: " .. tostring(runErr))
+            end
+        else
+            warn("GitHubのコードに構文エラーがあります: " .. tostring(err))
+        end
+    else
+        warn("GitHubからコードを取得できませんでした。URLを確認してください。")
+    end
+end
+
+-- 実行開始
+start()
