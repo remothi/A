@@ -1,0 +1,126 @@
+local TeleportService = game:GetService("TeleportService")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local Players = game:GetService("Players")
+local player = Players.LocalPlayer
+local runService = game:GetService("RunService")
+
+local fileName = "LeaderConfig.txt"
+
+-- 【関数】保存・読み込み
+local function saveLeaderName(name)
+    if writefile then writefile(fileName, tostring(name)) end
+    print("[SYSTEM] Saved: " .. tostring(name))
+end
+
+local function loadLeaderName()
+    if isfile and isfile(fileName) then
+        local res = readfile(fileName)
+        if res and res ~= "" then return tostring(res) end
+    end
+    return player.Name
+end
+
+local currentLeader = loadLeaderName()
+
+-- GUI作成
+local function createGui()
+    if player.PlayerGui:FindFirstChild("LeaderConfigGui") then 
+        player.PlayerGui.LeaderConfigGui:Destroy()
+    end
+    local sg = Instance.new("ScreenGui", player.PlayerGui)
+    sg.Name = "LeaderConfigGui"
+    sg.ResetOnSpawn = false
+    local f = Instance.new("Frame", sg)
+    f.Size = UDim2.new(0, 200, 0, 90)
+    f.Position = UDim2.new(0.5, -100, 0, 60)
+    f.BackgroundColor3 = Color3.fromRGB(30, 30, 30)
+    f.Draggable = true
+    f.Active = true
+    local tb = Instance.new("TextBox", f)
+    tb.Size = UDim2.new(1, -20, 0, 35)
+    tb.Position = UDim2.new(0, 10, 0, 10)
+    tb.Text = currentLeader
+    local btn = Instance.new("TextButton", f)
+    btn.Size = UDim2.new(1, -20, 0, 30)
+    btn.Position = UDim2.new(0, 10, 0, 50)
+    btn.Text = "Save & Apply"
+    btn.MouseButton1Click:Connect(function()
+        currentLeader = tb.Text
+        saveLeaderName(currentLeader)
+    end)
+end
+createGui()
+
+-- Place 10 監視
+if game.PlaceId == 107066417917236 then
+    print("[DEBUG] Active")
+    local triggered = false
+    local lockOn = false
+    local lastLog = 0
+
+    runService.Heartbeat:Connect(function()
+        if triggered then return end
+        local targetPlayer = Players:FindFirstChild(currentLeader)
+        if not targetPlayer then return end
+
+        if not lockOn then
+            local room = workspace:FindFirstChild("RoomGUI")
+            if room then
+                local room02 = room:FindFirstChild("ClassRoom02", true)
+                if room02 then
+                    local slot = room02:FindFirstChild("SlotCount", true)
+                    if slot and string.find(tostring(slot.Text), "0/6") then
+                        lockOn = true
+                        print("[LOCKON] 0/6")
+                    end
+                end
+            end
+        end
+
+        if lockOn then
+            local targetPart = nil
+            local locFolder = workspace:FindFirstChild("Location")
+            if locFolder then
+                for _, v in pairs(locFolder:GetDescendants()) do
+                    if v.Name == "LocationCollisionPart" then
+                        local gv = v:FindFirstChild("GUIValue")
+                        if gv and tostring(gv.Value) == "ClassRoom02" then
+                            targetPart = v
+                            break
+                        end
+                    end
+                end
+            end
+
+            if targetPart then
+                local myChar = player.Character
+                local myHRP = myChar and myChar:FindFirstChild("HumanoidRootPart")
+                if not myHRP then return end
+
+                if currentLeader == player.Name then
+                    triggered = true 
+                    myHRP.CFrame = targetPart.CFrame
+                    task.delay(0.5, function()
+                        local rf = ReplicatedStorage:FindFirstChild("ChangeBecomeAooniModeFunction", true)
+                        if rf and rf:IsA("RemoteFunction") then rf:InvokeServer() end
+                        local p = player:FindFirstChild("Profile")
+                        if p and p:FindFirstChild("Aodiamond") and p.Aodiamond.Value >= 10 then
+                            local re = ReplicatedStorage:FindFirstChild("ExchangeAction", true)
+                            if re then re:FireServer("AooniVirus") end
+                        end
+                    end)
+                else
+                    local leaderChar = targetPlayer.Character
+                    local leaderHRP = leaderChar and leaderChar:FindFirstChild("HumanoidRootPart")
+                    if leaderHRP then
+                        myHRP.CFrame = leaderHRP.CFrame
+                        local distToPart = (myHRP.Position - targetPart.Position).Magnitude
+                        if distToPart < 4 then 
+                            triggered = true 
+                        end
+                    end
+                end
+            end
+        end
+    end)
+end
