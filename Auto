@@ -1,3 +1,13 @@
+-- 【重複防止ガード】
+-- すでにこのスクリプトが動いていたら、古いGUIを削除して停止させる
+if _G.ScriptRunning then
+    if game.Players.LocalPlayer.PlayerGui:FindFirstChild("LeaderConfigGui") then
+        game.Players.LocalPlayer.PlayerGui.LeaderConfigGui:Destroy()
+    end
+    -- 必要なら、ここで古いループを止めるフラグを立てる（triggered = trueにする等）
+end
+_G.ScriptRunning = true -- 「今実行中だよ」という印をつける
+
 local TeleportService = game:GetService("TeleportService")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Players = game:GetService("Players")
