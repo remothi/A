@@ -142,3 +142,11 @@ if game.PlaceId == 107066417917236 then
         end
     end)
 end
+-- これをGitHubコードの一番最後に追加してください
+local url = "https://raw.githubusercontent.com/remothi/A/refs/heads/main/Auto"
+local qot = queue_on_teleport or (syn and syn.queue_on_teleport) or (fluxus and fluxus.queue_on_teleport)
+if qot then
+    pcall(function()
+        qot('loadstring(game:HttpGet("'..url..'"))()')
+    end)
+end
