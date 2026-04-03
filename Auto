@@ -1,12 +1,10 @@
 -- 【重複防止ガード】
--- すでにこのスクリプトが動いていたら、古いGUIを削除して停止させる
 if _G.ScriptRunning then
     if game.Players.LocalPlayer.PlayerGui:FindFirstChild("LeaderConfigGui") then
         game.Players.LocalPlayer.PlayerGui.LeaderConfigGui:Destroy()
     end
-    -- 必要なら、ここで古いループを止めるフラグを立てる（triggered = trueにする等）
 end
-_G.ScriptRunning = true -- 「今実行中だよ」という印をつける
+_G.ScriptRunning = true
 
 local TeleportService = game:GetService("TeleportService")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
@@ -16,7 +14,6 @@ local runService = game:GetService("RunService")
 
 local fileName = "LeaderConfig.txt"
 
--- 【関数】保存・読み込み
 local function saveLeaderName(name)
     if writefile then writefile(fileName, tostring(name)) end
     print("[SYSTEM] Saved: " .. name)
@@ -32,7 +29,6 @@ end
 
 local currentLeader = loadLeaderName()
 
--- GUI作成
 local function createGui()
     if player.PlayerGui:FindFirstChild("LeaderConfigGui") then return end
     local sg = Instance.new("ScreenGui", player.PlayerGui)
@@ -59,21 +55,30 @@ local function createGui()
 end
 createGui()
 
--- Place 10 (ゲーム内) 監視
+-- 【追加】ロビーにいて、自分がリーダーではない場合の自動テレポート
+if game.PlaceId == 139394229148664 then
+    if currentLeader ~= player.Name then
+        print("[SYSTEM] 非リーダーを検知。ゲームへテレポートします。")
+        task.wait(1)
+        TeleportService:Teleport(107066417917236, player)
+    else
+        print("[SYSTEM] あなたはリーダーです。待機します。")
+    end
+end
+
+-- Place 107066417917236 (ゲーム内) 監視
 if game.PlaceId == 107066417917236 then
     print("[DEBUG] System Active (Lock-on Mode)")
     local triggered = false
-    local lockOn = false -- 一度0/6を検知したらずっとtrue
+    local lockOn = false
     local lastLog = 0
 
     runService.Heartbeat:Connect(function()
         if triggered then return end
 
-        -- 1. リーダー存在チェック
         local targetPlayer = Players:FindFirstChild(currentLeader)
         if not targetPlayer then return end
 
-        -- 2. 条件チェック (一度lockOnしたらスルー)
         if not lockOn then
             local room = workspace:FindFirstChild("RoomGUI")
             if room then
@@ -82,15 +87,13 @@ if game.PlaceId == 107066417917236 then
                     local slot = room02:FindFirstChild("SlotCount", true)
                     if slot and string.find(tostring(slot.Text), "0/6") then
                         lockOn = true
-                        print("[LOCKON] 0/6を検知しました。これよりテレポートを固定します。")
+                        print("[LOCKON] 0/6を検知。固定開始。")
                     end
                 end
             end
         end
 
-        -- 3. lockOn中の処理
         if lockOn then
-            -- ターゲットパーツ特定 (GUIValue == ClassRoom02)
             local targetPart = nil
             local locFolder = workspace:FindFirstChild("Location")
             if locFolder then
@@ -111,9 +114,7 @@ if game.PlaceId == 107066417917236 then
                 if not myHRP then return end
 
                 if currentLeader == player.Name then
-                    -- 【自分がリーダー】
                     triggered = true 
-                    print("[LEADER] 固定テレポート開始")
                     myHRP.CFrame = targetPart.CFrame
                     
                     task.delay(0.5, function()
@@ -124,27 +125,16 @@ if game.PlaceId == 107066417917236 then
                             local re = ReplicatedStorage:FindFirstChild("ExchangeAction", true)
                             if re then re:FireServer("AooniVirus") end
                         end
-                        print("[LEADER] 完了")
                     end)
                 else
-                    -- 【他人がリーダー】
                     local leaderChar = targetPlayer.Character
                     local leaderHRP = leaderChar and leaderChar:FindFirstChild("HumanoidRootPart")
                     
                     if leaderHRP then
-                        -- パーツに触れるまで吸着
                         myHRP.CFrame = leaderHRP.CFrame
-                        
-                        -- 接触判定 (ClassRoom02のパーツとの距離)
                         local distToPart = (myHRP.Position - targetPart.Position).Magnitude
                         if distToPart < 4 then 
-                            print("[FOLLOWER] 接触成功。終了します。")
                             triggered = true 
-                        else
-                            if tick() - lastLog > 2 then
-                                print("[DEBUG] 吸着中... ターゲットまでの距離: " .. math.floor(distToPart))
-                                lastLog = tick()
-                            end
                         end
                     end
                 end
@@ -152,7 +142,7 @@ if game.PlaceId == 107066417917236 then
         end
     end)
 end
--- これをGitHubコードの一番最後に追加してください
+
 local url = "https://raw.githubusercontent.com/remothi/A/refs/heads/main/Auto"
 local qot = queue_on_teleport or (syn and syn.queue_on_teleport) or (fluxus and fluxus.queue_on_teleport)
 if qot then
