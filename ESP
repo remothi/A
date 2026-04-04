@@ -2130,6 +2130,12 @@ local Window = Rayfield:CreateWindow({
 -- [Mainタブ]
 local function setupPrompt(v)
     if v:IsA("ProximityPrompt") then
+        -- School.Item の中にあるかチェック
+        local itemContainer = getItemContainer()
+        if not (itemContainer and v:IsDescendantOf(itemContainer)) then 
+            return -- 指定フォルダ外なら何もしない
+        end
+
         if State.autoModify then
             v.MaxActivationDistance = 9e9
             v.HoldDuration = 0
@@ -2150,10 +2156,13 @@ local function setupPrompt(v)
                 end)
             end
         else
+            -- OFFにした時は元の距離（10など）に戻す
             v.MaxActivationDistance = 10
             v:SetAttribute("Connected", nil)
         end
     end
+end
+
 end
 
 local function connectItemFolder()
