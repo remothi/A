@@ -2000,18 +2000,15 @@ local State = {
     isBodyVisible = true,
     teleports = {},
     lastReset = 0,
-    -- Movement設定
     walkSpeed = 16,
     jumpPower = 50,
     speedEnabled = false,
-    jumpPowerEnabled = false, -- ジャンプ力反映の独立フラグ
-    jumpButtonVisible = false, -- ボタン表示の独立フラグ
+    jumpPowerEnabled = false,
+    jumpButtonVisible = false,
     infJump = false,
-    -- Diamond Farm設定
     diamondFarmEnabled = false
 }
 
--- ViewModelの退避用ストレージ
 local vmStorage = Instance.new("Folder")
 vmStorage.Name = "HiddenVMStorage"
 vmStorage.Parent = ReplicatedStorage
@@ -2054,15 +2051,12 @@ Instance.new("UICorner", InnerFrame).CornerRadius = UDim.new(1, 0)
 Instance.new("UICorner", JumpButton).CornerRadius = UDim.new(1, 0)
 
 JumpButton.MouseButton1Click:Connect(function()
-    -- ボタン表示設定がONの時のみ動作
     if not State.jumpButtonVisible then return end
-    
     local char = player.Character
     local hrp = char and char:FindFirstChild("HumanoidRootPart")
     local hum = char and char:FindFirstChildOfClass("Humanoid")
     if hrp and hum then
         if hum.FloorMaterial ~= Enum.Material.Air or State.infJump then
-            -- ジャンプ力反映がONならState.jumpPowerを、OFFならデフォルト(50)を使用
             local power = State.jumpPowerEnabled and State.jumpPower or 50
             hrp.Velocity = Vector3.new(hrp.Velocity.X, power, hrp.Velocity.Z)
         end
@@ -2072,11 +2066,9 @@ end)
 -- [Diamond Farm 処理関数]
 local function processDiamondItem(item)
     if not State.diamondFarmEnabled or item.Name ~= TARGET_NAME then return end
-
     local char = player.Character
     local hrp = char and char:FindFirstChild("HumanoidRootPart")
     if not char or not hrp then return end
-
     local targetCFrame = item:IsA("Model") and item:GetPivot() or item:IsA("BasePart") and item.CFrame
     if not targetCFrame then return end
 
@@ -2092,7 +2084,6 @@ local function processDiamondItem(item)
         end
     end
     task.wait(0.05)
-
     local safeCFrame = targetCFrame * CFrame.new(0, 100, 0)
     char:PivotTo(safeCFrame)
     task.wait(0.05)
@@ -2119,58 +2110,43 @@ local function scanAllDiamonds()
     end
 end
 
--- [GUI作成]
-local Window = Rayfield:CreateWindow({
-   Name = "You are BANNED Hub",
-   LoadingTitle = "たなかかなた",
-   LoadingSubtitle = "by Msathi",
-   ConfigurationSaving = { Enabled = false }
-})
-
--- [Mainタブ]
+-- --- 修正した setupPrompt ---
 local function setupPrompt(v)
     if v:IsA("ProximityPrompt") then
-        -- School.Item の中にあるかチェック
+        -- School.Itemの中にあるかチェック
         local itemContainer = getItemContainer()
-        if not (itemContainer and v:IsDescendantOf(itemContainer)) then 
-            return -- 指定フォルダ外なら何もしない
-        end
-
-        if State.autoModify then
-            v.MaxActivationDistance = 9e9
-            v.HoldDuration = 0
-            v.RequiresLineOfSight = false
-            if not v:GetAttribute("Connected") then
-                v:SetAttribute("Connected", true)
-                v.Triggered:Connect(function(p)
-                    if p == player and State.autoModify and not State.teleports[v] then
-                        local root = player.Character and player.Character:FindFirstChild("HumanoidRootPart")
-                        if root and v.Parent:IsA("BasePart") then
-                            State.teleports[v] = true
-                            root.CFrame = v.Parent.CFrame
-                            task.wait(0.2)
-                            fireproximityprompt(v)
-                            task.delay(3, function() State.teleports[v] = nil end)
+        if itemContainer and v:IsDescendantOf(itemContainer) then
+            if State.autoModify then
+                v.MaxActivationDistance = 9e9
+                v.HoldDuration = 0
+                v.RequiresLineOfSight = false
+                if not v:GetAttribute("Connected") then
+                    v:SetAttribute("Connected", true)
+                    v.Triggered:Connect(function(p)
+                        if p == player and State.autoModify and not State.teleports[v] then
+                            local root = player.Character and player.Character:FindFirstChild("HumanoidRootPart")
+                            if root and v.Parent:IsA("BasePart") then
+                                State.teleports[v] = true
+                                root.CFrame = v.Parent.CFrame
+                                task.wait(0.2)
+                                fireproximityprompt(v)
+                                task.delay(3, function() State.teleports[v] = nil end)
+                            end
                         end
-                    end
-                end)
+                    end)
+                end
+            else
+                v.MaxActivationDistance = 10
+                v:SetAttribute("Connected", nil)
             end
-        else
-            -- OFFにした時は元の距離（10など）に戻す
-            v.MaxActivationDistance = 10
-            v:SetAttribute("Connected", nil)
         end
     end
-end
-
 end
 
 local function connectItemFolder()
     local itemFolder = getItemContainer()
     if not itemFolder then return end
-
     for _, v in pairs(itemFolder:GetDescendants()) do setupPrompt(v) end
-
     if not itemFolder:GetAttribute("Watched") then
         itemFolder:SetAttribute("Watched", true)
         itemFolder.ChildAdded:Connect(function(child)
@@ -2184,6 +2160,14 @@ local function connectItemFolder()
         end)
     end
 end
+
+-- [GUI作成]
+local Window = Rayfield:CreateWindow({
+   Name = "You are BANNED Hub",
+   LoadingTitle = "たなかかなた",
+   LoadingSubtitle = "by Msathi",
+   ConfigurationSaving = { Enabled = false }
+})
 
 local MainTab = Window:CreateTab("Main", 4483362458)
 MainTab:CreateToggle({
@@ -2207,41 +2191,14 @@ MainTab:CreateToggle({
     end,
 })
 
--- [Movementタブ]
 local MoveTab = Window:CreateTab("Movement", 4483362458)
-MoveTab:CreateToggle({
-    Name = "Speed Hack",
-    CurrentValue = false,
-    Callback = function(v) State.speedEnabled = v end
-})
-MoveTab:CreateSlider({
-    Name = "WalkSpeed", Range = {16, 200}, Increment = 1, Suffix = "Speed", CurrentValue = 16,
-    Callback = function(v) State.walkSpeed = v end
-})
+MoveTab:CreateToggle({ Name = "Speed Hack", CurrentValue = false, Callback = function(v) State.speedEnabled = v end })
+MoveTab:CreateSlider({ Name = "WalkSpeed", Range = {16, 200}, Increment = 1, Suffix = "Speed", CurrentValue = 16, Callback = function(v) State.walkSpeed = v end })
+MoveTab:CreateToggle({ Name = "Jump Hack (ジャンプ力反映)", CurrentValue = false, Callback = function(v) State.jumpPowerEnabled = v end })
+MoveTab:CreateToggle({ Name = "Jump Button (ボタン表示)", CurrentValue = false, Callback = function(v) State.jumpButtonVisible = v JumpGui.Enabled = v end })
+MoveTab:CreateSlider({ Name = "JumpPower", Range = {50, 500}, Increment = 1, Suffix = "Power", CurrentValue = 50, Callback = function(v) State.jumpPower = v end })
+MoveTab:CreateToggle({ Name = "Infinite Jump", CurrentValue = false, Callback = function(v) State.infJump = v end })
 
--- ここを分割しました
-MoveTab:CreateToggle({
-    Name = "Jump Hack (ジャンプ力反映)",
-    CurrentValue = false,
-    Callback = function(v) State.jumpPowerEnabled = v end
-})
-MoveTab:CreateToggle({
-    Name = "Jump Button (ボタン表示)",
-    CurrentValue = false,
-    Callback = function(v) State.jumpButtonVisible = v JumpGui.Enabled = v end
-})
-
-MoveTab:CreateSlider({
-    Name = "JumpPower", Range = {50, 500}, Increment = 1, Suffix = "Power", CurrentValue = 50,
-    Callback = function(v) State.jumpPower = v end
-})
-MoveTab:CreateToggle({
-    Name = "Infinite Jump",
-    CurrentValue = false,
-    Callback = function(v) State.infJump = v end
-})
-
--- [Bypassタブ]
 local BypassTab = Window:CreateTab("Bypass", 4483362458)
 BypassTab:CreateToggle({
    Name = "バイパス & ツール生成",
@@ -2254,13 +2211,7 @@ BypassTab:CreateToggle({
               game.ReplicatedStorage:FindFirstChild("InGame") and game.ReplicatedStorage.InGame.Instances.RemoteEvent:FindFirstChild("BlackboardResult"),
               game.ReplicatedStorage:FindFirstChild("SoundHandler") and game.ReplicatedStorage.SoundHandler:FindFirstChild("ReplicatePlay"),
           }
-          for _, e in pairs(bList) do 
-              if e then 
-                  for _, c in pairs(getconnections(e.OnClientEvent)) do 
-                      c:Disable() 
-                  end 
-              end 
-          end
+          for _, e in pairs(bList) do if e then for _, c in pairs(getconnections(e.OnClientEvent)) do c:Disable() end end end
           
           if not (player.Backpack:FindFirstChild("BodyVisibility") or (player.Character and player.Character:FindFirstChild("BodyVisibility"))) then
               local tool = Instance.new("Tool")
@@ -2280,7 +2231,6 @@ BypassTab:CreateToggle({
    end,
 })
 
--- 入力処理
 UserInputService.JumpRequest:Connect(function()
     if State.infJump then
         local char = player.Character
@@ -2289,7 +2239,6 @@ UserInputService.JumpRequest:Connect(function()
     end
 end)
 
--- ループ処理
 RunService.RenderStepped:Connect(function()
     local char = player.Character
     local hum = char and char:FindFirstChildOfClass("Humanoid")
@@ -2298,12 +2247,7 @@ RunService.RenderStepped:Connect(function()
 
     if char and hum then
         if State.speedEnabled then hum.WalkSpeed = State.walkSpeed end
-        -- ジャンプ力反映がONの時だけ適用する
-        if State.jumpPowerEnabled then 
-            hum.JumpPower = State.jumpPower 
-        else
-            hum.JumpPower = 50 -- デフォルト値
-        end
+        if State.jumpPowerEnabled then hum.JumpPower = State.jumpPower else hum.JumpPower = 50 end
     end
 
     local clientFolder = workspace:FindFirstChild("Client")
@@ -2381,6 +2325,7 @@ task.spawn(function()
 end)
 
 connectItemFolder()
+
 end
 do
 if game.PlaceId ~= 139394229148664 then return end
