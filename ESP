@@ -2389,3 +2389,604 @@ task.spawn(function()
     end
 end)
 end
+
+-- 実行を許可するPlace ID（ゲームのID）をここに記入
+local targetPlaceId = 139394229148664 -- あなたが使用したいPlaceのIDに変更してください
+
+-- 現在のPlace IDを取得
+local currentPlaceId = game.PlaceId
+
+-- IDが一致する場合のみ実行
+if currentPlaceId == targetPlaceId then
+        local bindable = Instance.new("BindableFunction")
+    bindable.OnInvoke = function(answer)
+        if answer == "Yes" then
+            -- 元のtask.spawn群をここに入れる
+       
+
+
+    -- 1つ目のスクリプト
+    task.spawn(function()
+        do
+local PathfindingService = game:GetService("PathfindingService")
+local Players = game:GetService("Players")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+
+local player = Players.LocalPlayer
+local character = player.Character or player.CharacterAdded:Wait()
+local humanoid = character:WaitForChild("Humanoid")
+local rootPart = character:WaitForChild("HumanoidRootPart")
+
+-- 外部参照設定
+local safeAreaFolder = ReplicatedStorage:WaitForChild("ObjectValues"):WaitForChild("SafeArea")
+
+-- 内部設定（初期速度18）
+_G.AutoChase = true
+_G.ChaseSpeed = 15
+
+-- --- キャラクター更新処理 ---
+local function setupCharacter(newCharacter)
+	character = newCharacter
+	humanoid = newCharacter:WaitForChild("Humanoid")
+	rootPart = newCharacter:WaitForChild("HumanoidRootPart")
+	
+	task.spawn(function()
+		task.wait(0.1)
+		-- 条件一致時に速度を適用
+		if ReplicatedStorage:GetAttribute("gameType") == "ObtainOneItem" and _G.AutoChase and humanoid then
+			humanoid.WalkSpeed = _G.ChaseSpeed
+		end
+	end)
+end
+
+player.CharacterAdded:Connect(setupCharacter)
+
+-- --- GUI作成 ---
+local ScreenGui = player:WaitForChild("PlayerGui"):FindFirstChild("AutoChaseGui") or Instance.new("ScreenGui")
+ScreenGui.Name = "AutoChaseGui"
+ScreenGui.Parent = player:WaitForChild("PlayerGui")
+ScreenGui.ResetOnSpawn = false
+ScreenGui.Enabled = false 
+
+local MainFrame = ScreenGui:FindFirstChild("MainFrame") or Instance.new("Frame")
+MainFrame.Name = "MainFrame"
+MainFrame.Parent = ScreenGui
+MainFrame.Size = UDim2.new(0, 150, 0, 100)
+MainFrame.Position = UDim2.new(0.5, -75, 0.05, 0)
+MainFrame.BackgroundTransparency = 0.5
+MainFrame.BackgroundColor3 = Color3.new(0, 0, 0)
+MainFrame.Active = true
+MainFrame.Draggable = true
+
+local ToggleButton = MainFrame:FindFirstChild("ToggleButton") or Instance.new("TextButton")
+ToggleButton.Name = "ToggleButton"
+ToggleButton.Parent = MainFrame
+ToggleButton.Size = UDim2.new(1, -10, 0, 40)
+ToggleButton.Position = UDim2.new(0, 5, 0, 5)
+ToggleButton.BackgroundColor3 = Color3.fromRGB(0, 180, 0)
+ToggleButton.Text = "Chase: ON"
+ToggleButton.TextColor3 = Color3.new(1, 1, 1)
+ToggleButton.Font = Enum.Font.SourceSansBold
+ToggleButton.TextSize = 16
+
+local SpeedInput = MainFrame:FindFirstChild("SpeedInput") or Instance.new("TextBox")
+SpeedInput.Name = "SpeedInput"
+SpeedInput.Parent = MainFrame
+SpeedInput.Size = UDim2.new(1, -10, 0, 40)
+SpeedInput.Position = UDim2.new(0, 5, 0, 50)
+SpeedInput.BackgroundColor3 = Color3.fromRGB(50, 50, 50)
+SpeedInput.Text = "Speed: 15"
+SpeedInput.TextColor3 = Color3.new(1, 1, 1)
+SpeedInput.Font = Enum.Font.SourceSans
+SpeedInput.TextSize = 14
+SpeedInput.ClearTextOnFocus = true
+
+-- --- 速度・トグル処理 ---
+SpeedInput.FocusLost:Connect(function()
+	local newSpeed = tonumber(SpeedInput.Text:match("%d+"))
+	if newSpeed then
+		_G.ChaseSpeed = newSpeed
+		if _G.AutoChase and humanoid then humanoid.WalkSpeed = _G.ChaseSpeed end
+	end
+	SpeedInput.Text = "Speed: " .. tostring(_G.ChaseSpeed)
+end)
+
+ToggleButton.MouseButton1Click:Connect(function()
+	_G.AutoChase = not _G.AutoChase
+	ToggleButton.Text = _G.AutoChase and "Chase: ON" or "Chase: OFF"
+	ToggleButton.BackgroundColor3 = _G.AutoChase and Color3.fromRGB(0, 180, 0) or Color3.fromRGB(200, 0, 0)
+	if humanoid then
+		humanoid.WalkSpeed = _G.AutoChase and _G.ChaseSpeed or 16
+	end
+end)
+
+-- --- gameType 監視ロジック ---
+local function updateGameTypeStatus()
+	local gameType = ReplicatedStorage:GetAttribute("gameType")
+	if gameType == "ObtainOneItem" then
+		ScreenGui.Enabled = true
+		if _G.AutoChase and humanoid then humanoid.WalkSpeed = _G.ChaseSpeed end
+	else
+		ScreenGui.Enabled = false
+		if humanoid then humanoid.WalkSpeed = 16 end
+	end
+end
+
+ReplicatedStorage:GetAttributeChangedSignal("gameType"):Connect(updateGameTypeStatus)
+updateGameTypeStatus()
+
+-- --- 判定・パス計算ロジック ---
+local function isTargetable(targetPlayer)
+	local inHide = targetPlayer:GetAttribute("inHide")
+	local inSafeArea = targetPlayer:GetAttribute("inSafeArea")
+	return not (inHide == true or inSafeArea == true)
+end
+
+local function getAgentParams()
+	local costs = { GatePivot1 = 1, GatePivot2 = 1 }
+	for _, obj in ipairs(safeAreaFolder:GetDescendants()) do
+		if obj:IsA("BasePart") then costs[obj.Name] = math.huge end
+	end
+	return { AgentRadius = 2, AgentHeight = 5, AgentCanJump = true, Costs = costs }
+end
+
+local function getTarget()
+	local closest = nil
+	local minDist = math.huge
+	for _, p in ipairs(Players:GetPlayers()) do
+		if p ~= player and p.Character and p.Character:FindFirstChild("HumanoidRootPart") then
+			if isTargetable(p) then
+				local d = (rootPart.Position - p.Character.HumanoidRootPart.Position).Magnitude
+				if d < minDist then
+					minDist = d
+					closest = p.Character.HumanoidRootPart
+				end
+			end
+		end
+	end
+	return closest
+end
+
+-- --- メインループ ---
+task.spawn(function()
+	while true do
+		task.wait(0.03)
+		if ReplicatedStorage:GetAttribute("gameType") == "ObtainOneItem" and _G.AutoChase and humanoid and rootPart then
+			local target = getTarget()
+			if target then
+				local path = PathfindingService:CreatePath(getAgentParams())
+				path:ComputeAsync(rootPart.Position, target.Position)
+
+				if path.Status == Enum.PathStatus.Success then
+					local waypoints = path:GetWaypoints()
+					if #waypoints >= 2 then
+						humanoid:MoveTo(waypoints[2].Position)
+						if waypoints[2].Action == Enum.PathWaypointAction.Jump then
+							humanoid.Jump = true
+						end
+					end
+				else
+					-- パス失敗時のスタック回避
+					local direction = (target.Position - rootPart.Position).Unit
+					humanoid:MoveTo(rootPart.Position + direction * 2)
+					if math.random() > 0.8 then humanoid.Jump = true end
+				end
+			else
+				humanoid:MoveTo(rootPart.Position)
+			end
+		end
+	end
+end)
+end-- [ここに1つ目のスクリプトの内容を貼り付け]
+    end)
+
+    -- 2つ目のスクリプト
+    task.spawn(function()
+        do
+-- [[ GUI: 動的制御システム ]]
+local ScreenGui = Instance.new("ScreenGui")
+ScreenGui.Name = "AutoSafeController"
+ScreenGui.Parent = game:GetService("CoreGui")
+ScreenGui.ResetOnSpawn = false
+
+local function createStyledButton(pos, text)
+    local btn = Instance.new("TextButton")
+    local corner = Instance.new("UICorner")
+    btn.Size = UDim2.new(0, 140, 0, 50)
+    btn.Position = pos
+    btn.BackgroundColor3 = Color3.fromRGB(200, 50, 50)
+    btn.Text = text
+    btn.TextColor3 = Color3.new(1, 1, 1)
+    btn.Font = Enum.Font.SourceSansBold
+    btn.TextSize = 14
+    btn.Visible = false 
+    btn.Active = true
+    btn.Draggable = true
+    btn.Parent = ScreenGui
+    corner.CornerRadius = UDim.new(0, 8); corner.Parent = btn
+    return btn
+end
+
+-- ブースト強度入力用のテキストボックス
+local PowerBox = Instance.new("TextBox")
+local PowerCorner = Instance.new("UICorner")
+PowerBox.Size = UDim2.new(0, 80, 0, 30)
+PowerBox.Position = UDim2.new(0.5, 10, 0.3, 55) -- BOOSTボタンの下
+PowerBox.BackgroundColor3 = Color3.fromRGB(30, 30, 30)
+PowerBox.TextColor3 = Color3.new(1, 1, 1)
+PowerBox.Text = "500" -- 初期値
+PowerBox.PlaceholderText = "Power"
+PowerBox.Font = Enum.Font.SourceSans
+PowerBox.TextSize = 14
+PowerBox.Visible = false
+PowerBox.Parent = ScreenGui
+PowerCorner.CornerRadius = UDim.new(0, 4); PowerCorner.Parent = PowerBox
+
+local TrackBtn = createStyledButton(UDim2.new(0.5, -150, 0.3, 0), "TRACK: OFF")
+local BoostBtn = createStyledButton(UDim2.new(0.5, 10, 0.3, 0), "BOOST: OFF")
+
+-- [[ ジョイスティックUI ]]
+local JoystickFrame = Instance.new("Frame")
+local JoystickThumb = Instance.new("Frame")
+JoystickFrame.Size = UDim2.new(0, 100, 0, 100)
+JoystickFrame.Position = UDim2.new(0, 50, 1, -150)
+JoystickFrame.BackgroundColor3 = Color3.fromRGB(0, 0, 0)
+JoystickFrame.BackgroundTransparency = 0.5
+JoystickFrame.Visible = false
+JoystickFrame.Parent = ScreenGui
+local UICornerBase = Instance.new("UICorner")
+UICornerBase.CornerRadius = UDim.new(1, 0); UICornerBase.Parent = JoystickFrame
+
+JoystickThumb.Size = UDim2.new(0, 50, 0, 50)
+JoystickThumb.Position = UDim2.new(0.5, -25, 0.5, -25)
+JoystickThumb.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
+JoystickThumb.BackgroundTransparency = 0.2
+JoystickThumb.Parent = JoystickFrame
+local UICornerThumb = Instance.new("UICorner")
+UICornerThumb.CornerRadius = UDim.new(1, 0); UICornerThumb.Parent = JoystickThumb
+
+-- [[ 内部ステート ]]
+local isTracking = false 
+local isBoosting = false
+local BOOST_POWER = 500
+local activeTouch = nil
+local currentInputVector = Vector3.new(0, 0, 0)
+local targetPlayer = nil
+local lastSwitchTime = 0
+local MAX_RADIUS = 50
+
+local lp = game:GetService("Players").LocalPlayer
+local RS = game:GetService("ReplicatedStorage")
+local targetRemote = nil 
+
+-- 強度設定の反映
+PowerBox.FocusLost:Connect(function()
+    local val = tonumber(PowerBox.Text)
+    if val then
+        BOOST_POWER = val
+    else
+        PowerBox.Text = tostring(BOOST_POWER) -- 数字以外なら戻す
+    end
+end)
+
+-- [[ ユーティリティ関数 ]]
+local function getCameraRelative(input)
+    local cam = workspace.CurrentCamera
+    if not cam then return input end
+    local look = cam.CFrame.LookVector
+    local forward = Vector3.new(look.X, 0, look.Z).Unit
+    local right = Vector3.new(cam.CFrame.RightVector.X, 0, cam.CFrame.RightVector.Z).Unit
+    return (forward * -input.Z) + (right * input.X)
+end
+
+local function getRandomPlayer()
+    local players = game:GetService("Players"):GetPlayers()
+    local validPlayers = {}
+    for _, p in ipairs(players) do
+        if p ~= lp and p.Character and p.Character:FindFirstChild("HumanoidRootPart") then
+            table.insert(validPlayers, p)
+        end
+    end
+    return #validPlayers > 0 and validPlayers[math.random(1, #validPlayers)] or nil
+end
+
+local function updateButtonStyles()
+    TrackBtn.Text = isTracking and "TRACK: ON" or "TRACK: OFF"
+    TrackBtn.BackgroundColor3 = isTracking and Color3.fromRGB(50, 180, 50) or Color3.fromRGB(200, 50, 50)
+    BoostBtn.Text = isBoosting and "BOOST: ON" or "BOOST: OFF"
+    BoostBtn.BackgroundColor3 = isBoosting and Color3.fromRGB(50, 180, 50) or Color3.fromRGB(200, 50, 50)
+end
+
+-- [[ gameType監視 ]]
+local function checkAndInit()
+    local gameType = RS:GetAttribute("gameType")
+    local isTargetGame = (gameType == "VSFallingPanels")
+
+    if isTargetGame then
+        if not targetRemote then
+            local moduleFolder = workspace:WaitForChild("VSFallingPanels", 5):WaitForChild("Module", 5)
+            if moduleFolder then targetRemote = moduleFolder:WaitForChild("SetMoveVectorAction", 5) end
+        end
+        if not TrackBtn.Visible then
+            TrackBtn.Visible, BoostBtn.Visible, PowerBox.Visible = true, true, true
+            isTracking = true 
+            updateButtonStyles()
+            targetPlayer = getRandomPlayer()
+            lastSwitchTime = tick()
+        end
+    else
+        TrackBtn.Visible, BoostBtn.Visible, PowerBox.Visible = false, false, false
+        JoystickFrame.Visible = false
+        isTracking, isBoosting = false, false
+        targetPlayer, targetRemote = nil, nil
+        updateButtonStyles()
+    end
+end
+
+RS:GetAttributeChangedSignal("gameType"):Connect(checkAndInit)
+task.spawn(checkAndInit)
+
+-- [[ スティック操作 ]]
+JoystickThumb.InputBegan:Connect(function(input)
+    if (input.UserInputType == Enum.UserInputType.Touch or input.UserInputType == Enum.UserInputType.MouseButton1) and not activeTouch then
+        activeTouch = input
+    end
+end)
+
+game:GetService("UserInputService").InputChanged:Connect(function(input)
+    if activeTouch and input == activeTouch then
+        local center = JoystickFrame.AbsolutePosition + Vector2.new(MAX_RADIUS, MAX_RADIUS)
+        local delta = Vector2.new(input.Position.X, input.Position.Y) - center
+        local dist = delta.Magnitude
+        local clampedDelta = delta.Unit * math.min(dist, MAX_RADIUS)
+        JoystickThumb.Position = UDim2.new(0.5, clampedDelta.X - 25, 0.5, clampedDelta.Y - 25)
+        currentInputVector = Vector3.new(delta.X, 0, delta.Y).Unit
+    end
+end)
+
+game:GetService("UserInputService").InputEnded:Connect(function(input)
+    if input == activeTouch then
+        activeTouch = nil
+        JoystickThumb:TweenPosition(UDim2.new(0.5, -25, 0.5, -25), "Out", "Back", 0.1)
+        currentInputVector = Vector3.new(0, 0, 0)
+    end
+end)
+
+local oldNamecall
+oldNamecall = hookmetamethod(game, "__namecall", function(self, ...)
+    local method = getnamecallmethod()
+    if targetRemote and (isTracking or isBoosting) and self == targetRemote and (method == "FireServer" or method == "fireServer") then
+        if not checkcaller() then return nil end
+    end
+    return oldNamecall(self, ...)
+end)
+
+BoostBtn.MouseButton1Click:Connect(function()
+    if not BoostBtn.Visible then return end
+    isBoosting = not isBoosting; isTracking = false
+    JoystickFrame.Visible = isBoosting
+    updateButtonStyles()
+end)
+
+TrackBtn.MouseButton1Click:Connect(function()
+    if not TrackBtn.Visible then return end
+    isTracking = not isTracking; isBoosting = false
+    JoystickFrame.Visible = false
+    updateButtonStyles()
+    if isTracking then targetPlayer = getRandomPlayer(); lastSwitchTime = tick() end
+end)
+
+-- [[ 送信ループ ]]
+game:GetService("RunService").RenderStepped:Connect(function()
+    if not (isTracking or isBoosting) or not targetRemote then return end
+    local char = lp.Character
+    if not char or not char:FindFirstChild("HumanoidRootPart") then return end
+    
+    local finalVec = Vector3.new(0, 0, 0)
+    if isBoosting then
+        if currentInputVector.Magnitude > 0 then
+            finalVec = getCameraRelative(currentInputVector) * BOOST_POWER
+        end
+    elseif isTracking then
+        if tick() - lastSwitchTime > 4 or not targetPlayer or not targetPlayer.Character or not targetPlayer.Character:FindFirstChild("HumanoidRootPart") then
+            targetPlayer = getRandomPlayer()
+            lastSwitchTime = tick()
+        end
+        if targetPlayer and targetPlayer.Character and targetPlayer.Character:FindFirstChild("HumanoidRootPart") then
+            local diff = (targetPlayer.Character.HumanoidRootPart.Position - char.HumanoidRootPart.Position)
+            finalVec = diff.Unit * (diff.Magnitude ^ 2)
+        end
+    end
+    targetRemote:FireServer(finalVec)
+end)
+end -- [ここに2つ目のスクリプトの内容を貼り付け]
+    end)
+
+    -- 3つ目のスクリプト
+    task.spawn(function()
+   do
+
+local Players = game:GetService("Players")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local LocalPlayer = Players.LocalPlayer
+
+-- 設定
+local OFFSET_Z = -5
+local INTERVAL = 1
+
+-- 状態管理 (標準でON)
+local isToggled = true
+local isFinalGame = false
+
+-- GUI作成
+local ScreenGui = Instance.new("ScreenGui")
+local ToggleButton = Instance.new("TextButton")
+
+ScreenGui.Name = "DebugToggleUI"
+ScreenGui.Parent = game:GetService("CoreGui")
+ScreenGui.ResetOnSpawn = false
+ScreenGui.Enabled = false -- 初期状態は非表示
+
+ToggleButton.Name = "ToggleButton"
+ToggleButton.Parent = ScreenGui
+ToggleButton.BackgroundColor3 = Color3.fromRGB(0, 200, 0)
+ToggleButton.Position = UDim2.new(0.5, -50, 0.1, 0)
+ToggleButton.Size = UDim2.new(0, 100, 0, 50)
+ToggleButton.Text = "ON"
+ToggleButton.TextColor3 = Color3.fromRGB(255, 255, 255)
+ToggleButton.TextScaled = true
+
+-- 最も近いプレイヤーの座標を取得
+local function getTargetPosition()
+    local character = LocalPlayer.Character
+    local myPos = character and character:FindFirstChild("HumanoidRootPart") and character.HumanoidRootPart.Position
+    if not myPos then return nil end
+
+    local closestPlayer = nil
+    local shortestDistance = math.huge
+
+    for _, player in pairs(Players:GetPlayers()) do
+        if player ~= LocalPlayer and player.Character and player.Character:FindFirstChild("HumanoidRootPart") then
+            local dist = (player.Character.HumanoidRootPart.Position - myPos).Magnitude
+            if dist < shortestDistance then
+                shortestDistance = dist
+                closestPlayer = player
+            end
+        end
+    end
+
+    local targetName = closestPlayer and closestPlayer.Name or "自分"
+    local finalPos = closestPlayer and closestPlayer.Character.HumanoidRootPart.Position or myPos
+    local adjustedPos = Vector3.new(finalPos.X, finalPos.Y, finalPos.Z + OFFSET_Z)
+    
+    print(string.format("[Debug] Target: %s | Pos: %s", targetName, tostring(adjustedPos)))
+    return adjustedPos
+end
+
+-- トグル処理
+ToggleButton.MouseButton1Click:Connect(function()
+    isToggled = not isToggled
+    ToggleButton.Text = isToggled and "ON" or "OFF"
+    ToggleButton.BackgroundColor3 = isToggled and Color3.fromRGB(0, 200, 0) or Color3.fromRGB(200, 0, 0)
+end)
+
+-- gameType属性の監視
+local function checkGameType()
+    local currentType = ReplicatedStorage:GetAttribute("gameType")
+    isFinalGame = (currentType == "FinalGame")
+    ScreenGui.Enabled = isFinalGame
+    
+    if isFinalGame then
+        print("[Debug] gameTypeがFinalGameになりました。ボタンを表示し、リモート待機を開始します。")
+    end
+end
+
+ReplicatedStorage:GetAttributeChangedSignal("gameType"):Connect(checkGameType)
+checkGameType() -- 初回実行
+
+-- メインループ
+task.spawn(function()
+    while true do
+        if isFinalGame and isToggled then
+            -- gameTypeがFinalGameの時のみリモートを探して実行
+            local finalGameFolder = workspace:FindFirstChild("FinalGame")
+            local moduleFolder = finalGameFolder and finalGameFolder:FindFirstChild("Module")
+            local remote = moduleFolder and moduleFolder:FindFirstChild("ResetAooniPositionAction")
+
+            if remote then
+                local targetPos = getTargetPosition()
+                if targetPos then
+                    pcall(function()
+                        remote:FireServer(targetPos)
+                    end)
+                end
+            else
+                warn("[Debug] FinalGame環境ですがリモートが見つかりません。構成を確認してください。")
+            end
+        end
+        task.wait(INTERVAL)
+    end
+end)
+
+
+
+end     -- [ここに3つ目のスクリプトの内容を貼り付け]
+    end)
+
+    -- 4つ目のスクリプト
+    task.spawn(function()
+do
+local Players = game:GetService("Players")
+local localPlayer = Players.LocalPlayer
+local CoreGui = game:GetService("CoreGui")
+
+-- GUIの作成
+local screenGui = Instance.new("ScreenGui")
+screenGui.Name = "PlayerRemoverGui"
+screenGui.Parent = CoreGui
+
+local textButton = Instance.new("TextButton")
+textButton.Size = UDim2.new(0, 150, 0, 50)
+textButton.Position = UDim2.new(1, -160, 0.5, -25)
+textButton.BackgroundColor3 = Color3.fromRGB(40, 40, 40)
+textButton.TextColor3 = Color3.fromRGB(255, 255, 255)
+textButton.Text = "Double Click"
+textButton.Parent = screenGui
+
+-- プレイヤーを削除する関数
+local function removePlayer(player)
+    if player ~= localPlayer then
+        player:Destroy()
+    end
+end
+
+local lastClick = 0
+local clickInterval = 0.5 -- 0.5秒以内に2回押す必要がある
+
+-- ボタンが押された時の処理
+textButton.MouseButton1Click:Connect(function()
+    local currentTime = tick()
+    
+    -- 前回のクリックからの時間を判定
+    if currentTime - lastClick < clickInterval then
+        -- 2回連続で素早く押された時の処理
+        textButton.Text = "Running..."
+        textButton.BackgroundColor3 = Color3.fromRGB(80, 0, 0)
+        
+        for _, player in ipairs(Players:GetPlayers()) do
+            removePlayer(player)
+        end
+        
+        Players.PlayerAdded:Connect(removePlayer)
+        
+        textButton.Text = "Monitoring..."
+        textButton.Active = false
+    else
+        -- 1回目、または間隔が空きすぎた場合
+        lastClick = currentTime
+        textButton.Text = "Press Again!"
+        
+        -- 一定時間経過したらテキストを戻す
+        task.delay(clickInterval, function()
+            if textButton.Active then
+                textButton.Text = "Double Click"
+            end
+        end)
+    end
+end)
+end     -- [ここに4つ目のスクリプトの内容を貼り付け]
+    end)
+
+            end -- if answer == "Yes" の終わり
+    end -- bindable.OnInvoke の終わり
+
+    -- 通知を表示（ここがPlace ID判定の内側に入っている必要があります）
+    game:GetService("StarterGui"):SetCore("SendNotification", {
+        Title = "Script Hub",
+        Text = "実行しますか？",
+        Duration = 10,
+        Callback = bindable,
+        Button1 = "Yes",
+        Button2 = "No"
+    })
+end -- if currentPlaceId == targetPlaceId の終わり
