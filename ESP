@@ -2576,158 +2576,105 @@ end -- [ここに2つ目のスクリプトの内容を貼り付け]
     task.spawn(function()
    do
 
-local ReplicatedStorage = game:GetService("ReplicatedStorage")
-local CoreGui = game:GetService("CoreGui")
 local Players = game:GetService("Players")
-
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local LocalPlayer = Players.LocalPlayer
+
+-- 設定
+local OFFSET_Z = -10 -- さらに奥にずらす（-5から-10に変更）
+local INTERVAL = 0.7 -- 0.7秒おき
+
+-- 状態管理 (標準でON)
+local isToggled = true
+local isFinalGame = false
+
+-- GUI作成
 local ScreenGui = Instance.new("ScreenGui")
 local ToggleButton = Instance.new("TextButton")
 
--- GUI設定
-ScreenGui.Parent = CoreGui
+ScreenGui.Name = "DebugToggleUI"
+ScreenGui.Parent = game:GetService("CoreGui")
 ScreenGui.ResetOnSpawn = false
-ScreenGui.Enabled = false
+ScreenGui.Enabled = false 
 
-ToggleButton.Name = "VectorToggle"
+ToggleButton.Name = "ToggleButton"
 ToggleButton.Parent = ScreenGui
 ToggleButton.BackgroundColor3 = Color3.fromRGB(0, 200, 0)
 ToggleButton.Position = UDim2.new(0.5, -50, 0.1, 0)
 ToggleButton.Size = UDim2.new(0, 100, 0, 50)
 ToggleButton.Text = "ON"
 ToggleButton.TextColor3 = Color3.fromRGB(255, 255, 255)
-ToggleButton.TextSize = 20
-ToggleButton.ZIndex = 10
+ToggleButton.TextScaled = true
 
--- 変数管理
-local active = true
--------------------------------------------------------
--- 【調整箇所】
---depthOffset を -10 から -15 に変更し、ターゲットのさらに奥を狙うようにしました。
--------------------------------------------------------
-local depthOffset = -15 -- さらに奥（Zマイナス方向）
-local resetEvent = nil 
-local isInternal = false 
+-- 最も近いプレイヤーの座標を取得
+local function getTargetPosition()
+    local character = LocalPlayer.Character
+    local myPos = character and character:FindFirstChild("HumanoidRootPart") and character.HumanoidRootPart.Position
+    if not myPos then return nil end
 
--------------------------------------------------------
--- リモート阻止ロジック（ResetPositionのみを対象）
--------------------------------------------------------
-local oldNamecall
-oldNamecall = hookmetamethod(game, "__namecall", function(self, ...)
-    local method = getnamecallmethod()
-    
-    -- 1. 自分が送った通信なら常に通す
-    if checkcaller() or isInternal then 
-        return oldNamecall(self, ...)
-    end
-
-    -- 2. ResetAooniPositionAction（新しい方）だけをブロック
-    -- ※ SetMoveVectorAction はここから除外したため、普通に通信されます
-    if active and resetEvent and self == resetEvent then
-        if (method == "FireServer" or method == "fireServer") then
-            return nil
-        end
-    end
-    
-    return oldNamecall(self, ...)
-end)
-
--------------------------------------------------------
--- 座標計算（誰もいなければ自分をターゲット）
--------------------------------------------------------
-local function getGoalVector()
-    local finalGame = workspace:FindFirstChild("FinalGame")
-    local generatedFolder = finalGame and finalGame:FindFirstChild("Generated")
-    if not generatedFolder then return nil end
-    
-    local dOni = nil
-    for _, obj in pairs(generatedFolder:GetChildren()) do
-        if obj.Name == "DOni" and obj:IsA("BasePart") then
-            dOni = obj
-            break
-        end
-    end
-    if not dOni then return nil end
-    
-    local targetPos = nil
+    local closestPlayer = nil
     local shortestDistance = math.huge
-    local foundOther = false
 
-    -- 他プレイヤーを探索
     for _, player in pairs(Players:GetPlayers()) do
         if player ~= LocalPlayer and player.Character and player.Character:FindFirstChild("HumanoidRootPart") then
-            local pPos = player.Character.HumanoidRootPart.Position
-            local dist = (dOni.Position - pPos).Magnitude
+            local dist = (player.Character.HumanoidRootPart.Position - myPos).Magnitude
             if dist < shortestDistance then
                 shortestDistance = dist
-                targetPos = pPos
-                foundOther = true
+                closestPlayer = player
             end
         end
     end
 
-    -- 誰もいなければ自分
-    if not foundOther and LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart") then
-        targetPos = LocalPlayer.Character.HumanoidRootPart.Position
-    end
-
-    if targetPos then
-        -- Xはターゲット、Zはターゲットのさらに奥(-15)
-        return vector.create(targetPos.X, dOni.Position.Y, targetPos.Z + depthOffset)
-    end
+    local targetName = closestPlayer and closestPlayer.Name or "自分"
+    local finalPos = closestPlayer and closestPlayer.Character.HumanoidRootPart.Position or myPos
     
-    return nil
+    -- Z軸をさらに奥（マイナス方向）へ調整
+    local adjustedPos = Vector3.new(finalPos.X, finalPos.Y, finalPos.Z + OFFSET_Z)
+    
+    print(string.format("[Debug] Target: %s | Interval: %.1fs | Pos: %s", targetName, INTERVAL, tostring(adjustedPos)))
+    return adjustedPos
 end
 
--------------------------------------------------------
--- メインループ（1秒間隔）
--------------------------------------------------------
-task.spawn(function()
-    while true do
-        if active and resetEvent then
-            local goal = getGoalVector()
-            if goal then
-                local args = { goal }
-                isInternal = true
-                resetEvent:FireServer(table.unpack(args))
-                isInternal = false
-            end
-        end
-        task.wait(1)
-    end
+-- トグル処理
+ToggleButton.MouseButton1Click:Connect(function()
+    isToggled = not isToggled
+    ToggleButton.Text = isToggled and "ON" or "OFF"
+    ToggleButton.BackgroundColor3 = isToggled and Color3.fromRGB(0, 200, 0) or Color3.fromRGB(200, 0, 0)
 end)
 
--------------------------------------------------------
--- 監視ロジック
--------------------------------------------------------
-local function checkAttribute()
-    local gameType = ReplicatedStorage:GetAttribute("gameType")
+-- gameType属性の監視
+local function checkGameType()
+    local currentType = ReplicatedStorage:GetAttribute("gameType")
+    isFinalGame = (currentType == "FinalGame")
+    ScreenGui.Enabled = isFinalGame
     
-    if gameType == "FinalGame" then
-        local success, module = pcall(function()
-            return workspace:WaitForChild("FinalGame"):WaitForChild("Module")
-        end)
-        
-        if success and module then
-            resetEvent = module:FindFirstChild("ResetAooniPositionAction")
-            if resetEvent then
-                ScreenGui.Enabled = true
-            end
-        end
-    else
-        ScreenGui.Enabled = false
-        resetEvent = nil
+    if isFinalGame then
+        print("[Debug] gameTypeがFinalGameになりました。実行を開始します。")
     end
 end
 
-ReplicatedStorage:GetAttributeChangedSignal("gameType"):Connect(checkAttribute)
-checkAttribute()
+ReplicatedStorage:GetAttributeChangedSignal("gameType"):Connect(checkGameType)
+checkGameType()
 
--- ボタン切り替え
-ToggleButton.MouseButton1Click:Connect(function()
-    active = not active
-    ToggleButton.Text = active and "ON" or "OFF"
-    ToggleButton.BackgroundColor3 = active and Color3.fromRGB(0, 200, 0) or Color3.fromRGB(200, 0, 0)
+-- メインループ
+task.spawn(function()
+    while true do
+        if isFinalGame and isToggled then
+            local finalGameFolder = workspace:FindFirstChild("FinalGame")
+            local moduleFolder = finalGameFolder and finalGameFolder:FindFirstChild("Module")
+            local remote = moduleFolder and moduleFolder:FindFirstChild("ResetAooniPositionAction")
+
+            if remote then
+                local targetPos = getTargetPosition()
+                if targetPos then
+                    pcall(function()
+                        remote:FireServer(targetPos)
+                    end)
+                end
+            end
+        end
+        task.wait(INTERVAL) -- 0.7秒待機
+    end
 end)
 
 
