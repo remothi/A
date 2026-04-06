@@ -1989,79 +1989,162 @@ end
 
 
 
+-- 他のスクリプトと変数が衝突しないようにブロック化
 do
-if game.PlaceId ~= 139394229148664 then return end
+    -- 指定のPlaceIDでのみ実行
+    if game.PlaceId == 139394229148664 then
+        local Players = game:GetService("Players")
+        local RunService = game:GetService("RunService")
+        local UIS = game:GetService("UserInputService")
+        local LocalPlayer = Players.LocalPlayer
 
-local lp = game:GetService("Players").LocalPlayer
-local UIS = game:GetService("UserInputService")
-local sg = Instance.new("ScreenGui", game:GetService("CoreGui"))
+        -- GUIの作成
+        local ScreenGui = Instance.new("ScreenGui")
+        ScreenGui.Name = "PlayerBringHub"
+        ScreenGui.ResetOnSpawn = false
+        ScreenGui.Parent = game:GetService("CoreGui")
 
--- UI構築
-local f = Instance.new("Frame", sg)
-f.Size, f.Position, f.BackgroundColor3, f.Active = UDim2.new(0, 160, 0, 200), UDim2.new(0, 10, 0, 10), Color3.fromRGB(20, 20, 20), true
-Instance.new("UICorner", f)
+        local MainFrame = Instance.new("Frame")
+        MainFrame.Size = UDim2.new(0, 180, 0, 250)
+        MainFrame.Position = UDim2.new(0, 10, 0, 10)
+        MainFrame.BackgroundColor3 = Color3.fromRGB(30, 30, 30)
+        MainFrame.Active = true
+        MainFrame.Parent = ScreenGui
+        Instance.new("UICorner", MainFrame).CornerRadius = UDim.new(0, 8)
 
-local t = Instance.new("TextButton", f)
-t.Size, t.BackgroundColor3, t.Text, t.TextColor3, t.TextSize = UDim2.new(1, 0, 0, 25), Color3.fromRGB(40, 40, 40), "Menu [-]", Color3.new(1,1,1), 12
-Instance.new("UICorner", t)
+        local TitleButton = Instance.new("TextButton")
+        TitleButton.Size = UDim2.new(1, 0, 0, 30)
+        TitleButton.BackgroundColor3 = Color3.fromRGB(50, 50, 50)
+        TitleButton.Text = "Player Menu [-]"
+        TitleButton.TextColor3 = Color3.new(1, 1, 1)
+        TitleButton.Font = Enum.Font.SourceSansBold
+        TitleButton.TextSize = 14
+        TitleButton.Parent = MainFrame
+        Instance.new("UICorner", TitleButton)
 
-local s = Instance.new("ScrollingFrame", f)
-s.Size, s.Position, s.BackgroundTransparency, s.ScrollBarThickness = UDim2.new(1, 0, 1, -25), UDim2.new(0, 0, 0, 25), 1, 2
-local l = Instance.new("UIListLayout", s)
+        local ScrollingFrame = Instance.new("ScrollingFrame")
+        ScrollingFrame.Size = UDim2.new(1, 0, 1, -30)
+        ScrollingFrame.Position = UDim2.new(0, 0, 0, 30)
+        ScrollingFrame.BackgroundTransparency = 1
+        ScrollingFrame.ScrollBarThickness = 3
+        ScrollingFrame.CanvasSize = UDim2.new(0, 0, 0, 0)
+        ScrollingFrame.Parent = MainFrame
 
--- ドラッグ & 開閉
-local d, ds, sp, tm
-t.InputBegan:Connect(function(i) if i.UserInputType.Value == 0 or i.UserInputType.Value == 7 then d, ds, sp, tm = true, i.Position, f.Position, tick() end end)
-UIS.InputChanged:Connect(function(i) if d and (i.UserInputType.Value == 4 or i.UserInputType.Value == 7) then 
-    local del = i.Position - ds
-    f.Position = UDim2.new(sp.X.Scale, sp.X.Offset + del.X, sp.Y.Scale, sp.Y.Offset + del.Y)
-end end)
-UIS.InputEnded:Connect(function(i) if d and (i.UserInputType.Value == 0 or i.UserInputType.Value == 7) then 
-    if tm and (tick() - tm) < 0.15 then 
-        local o = t.Text:find("-")
-        f:TweenSize(UDim2.new(0, 160, 0, o and 25 or 200), 1, 4, 0.2, true)
-        s.Visible, t.Text = not o, "Menu "..(o and "[+]" or "[-]")
-    end
-    d = false 
-end end)
+        local UIListLayout = Instance.new("UIListLayout")
+        UIListLayout.Parent = ScrollingFrame
+        UIListLayout.Padding = UDim.new(0, 5)
+        UIListLayout.HorizontalAlignment = Enum.HorizontalAlignment.Center
 
--- メインループ
-task.spawn(function()
-    while task.wait(1.5) do
-        if t.Text:find("-") then
-            for _, v in pairs(s:GetChildren()) do if v:IsA("TextButton") then v:Destroy() end end
-            local plrs = { "All" }
-            for _, p in pairs(game:GetService("Players"):GetPlayers()) do
-                if p ~= lp and p.Character and p.Character:FindFirstChild("Humanoid") and p.Character.Humanoid.Health > 0 then table.insert(plrs, p) end
-            end
-            for _, target in pairs(plrs) do
-                local b = Instance.new("TextButton", s)
-                b.Size, b.BackgroundColor3, b.Text, b.TextColor3, b.TextSize = UDim2.new(1, -4, 0, 25), (target == "All" and Color3.fromRGB(80, 20, 20) or Color3.fromRGB(35, 35, 35)), (target == "All" and "BRING ALL" or target.Name), Color3.new(1,1,1), 10
-                Instance.new("UICorner", b)
-                b.MouseButton1Click:Connect(function()
-                    local myHRP = lp.Character and lp.Character:FindFirstChild("HumanoidRootPart")
-                    if not myHRP then return end
-                    local targetPos = myHRP.CFrame * CFrame.new(0, 0, -3) -- 自分の3マス前
+        -- ドラッグ機能の関数
+        local function enableDragging()
+            local dragToggle = false
+            local dragStart = nil
+            local startPos = nil
 
-                    for _, v in pairs(target == "All" and game:GetService("Players"):GetPlayers() or {target}) do
-                        if v ~= lp and v.Character and v.Character:FindFirstChild("HumanoidRootPart") and v.Character:FindFirstChild("Humanoid") then 
-                            local tHRP, tHum = v.Character.HumanoidRootPart, v.Character.Humanoid
-                            tHRP.CFrame = targetPos
-                            task.spawn(function()
-                                task.wait(0.1)
-                                tHum:MoveTo(myHRP.Position) -- 自分に向かって歩かせる
-                            end)
-                        end
-                    end
-                end)
-            end
-            s.CanvasSize = UDim2.new(0, 0, 0, l.AbsoluteContentSize.Y)
+            TitleButton.InputBegan:Connect(function(input)
+                if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+                    dragToggle = true
+                    dragStart = input.Position
+                    startPos = MainFrame.Position
+                end
+            end)
+
+            UIS.InputChanged:Connect(function(input)
+                if dragToggle and (input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType.Touch) then
+                    local delta = input.Position - dragStart
+                    MainFrame.Position = UDim2.new(startPos.X.Scale, startPos.X.Offset + delta.X, startPos.Y.Scale, startPos.Y.Offset + delta.Y)
+                end
+            end)
+
+            UIS.InputEnded:Connect(function(input)
+                if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+                    dragToggle = false
+                end
+            end)
         end
+
+        -- 生存チェック関数
+        local function isPlayerAlive(player)
+            local char = player.Character
+            if char and char:FindFirstChild("HumanoidRootPart") and char:FindFirstChild("Humanoid") then
+                return char.Humanoid.Health > 0
+            end
+            return false
+        end
+
+        -- テレポート＆歩行実行関数
+        local function bringAndFollow(targetPlayer)
+            local myChar = LocalPlayer.Character
+            if not myChar or not myChar:FindFirstChild("HumanoidRootPart") then return end
+            
+            local myHRP = myChar.HumanoidRootPart
+            local targetCFrame = myHRP.CFrame * CFrame.new(0, 0, -3) -- 3マス前
+
+            local function perform(p)
+                if p ~= LocalPlayer and isPlayerAlive(p) then
+                    local tHRP = p.Character.HumanoidRootPart
+                    local tHum = p.Character.Humanoid
+                    tHRP.CFrame = targetCFrame
+                    task.delay(0.1, function()
+                        tHum:MoveTo(myHRP.Position)
+                    end)
+                end
+            end
+
+            if targetPlayer == "All" then
+                for _, p in pairs(Players:GetPlayers()) do perform(p) end
+            else
+                perform(targetPlayer)
+            end
+        end
+
+        -- リスト更新関数
+        local function refreshList()
+            for _, child in pairs(ScrollingFrame:GetChildren()) do
+                if child:IsA("TextButton") then child:Destroy() end
+            end
+
+            local function createBtn(name, target)
+                local btn = Instance.new("TextButton")
+                btn.Size = UDim2.new(1, -10, 0, 30)
+                btn.BackgroundColor3 = (target == "All") and Color3.fromRGB(80, 30, 30) or Color3.fromRGB(45, 45, 45)
+                btn.Text = name
+                btn.TextColor3 = Color3.new(1, 1, 1)
+                btn.TextSize = 12
+                btn.Parent = ScrollingFrame
+                Instance.new("UICorner", btn)
+                btn.MouseButton1Click:Connect(function() bringAndFollow(target) end)
+            end
+
+            createBtn("[ BRING ALL ]", "All")
+
+            for _, p in pairs(Players:GetPlayers()) do
+                if p ~= LocalPlayer and isPlayerAlive(p) then
+                    createBtn(p.Name, p)
+                end
+            end
+            ScrollingFrame.CanvasSize = UDim2.new(0, 0, 0, UIListLayout.AbsoluteContentSize.Y + 10)
+        end
+
+        -- 折りたたみイベント
+        TitleButton.MouseButton1Click:Connect(function()
+            local isClosing = ScrollingFrame.Visible
+            MainFrame:TweenSize(UDim2.new(0, 180, 0, isClosing and 30 or 250), "Out", "Quart", 0.3, true)
+            ScrollingFrame.Visible = not isClosing
+            TitleButton.Text = "Player Menu " .. (isClosing and "[+]" or "[-]")
+            if not isClosing then refreshList() end
+        end)
+
+        -- 初期化と定期更新
+        enableDragging()
+        task.spawn(function()
+            while task.wait(2) do
+                if ScrollingFrame.Visible then refreshList() end
+            end
+        end)
     end
-end)
-
-
 end
+
 
 -- 実行を許可するPlace ID（ゲームのID）をここに記入
 local targetPlaceId = 139394229148664 -- あなたが使用したいPlaceのIDに変更してください
@@ -2425,14 +2508,24 @@ game:GetService("UserInputService").InputEnded:Connect(function(input)
     end
 end)
 
+-- 送信ブロックの強化版
 local oldNamecall
 oldNamecall = hookmetamethod(game, "__namecall", function(self, ...)
     local method = getnamecallmethod()
-    if targetRemote and (isTracking or isBoosting) and self == targetRemote and (method == "FireServer" or method == "fireServer") then
-        if not checkcaller() then return nil end
+    local args = {...}
+    
+    -- 対象のリモート（targetRemote）への FireServer 呼び出しを監視
+    if self == targetRemote and (method == "FireServer" or method == "fireServer") then
+        -- スクリプト自身（checkcaller）からの呼び出しでなければ、ゲーム側の信号としてブロック
+        if not checkcaller() then
+            return nil -- ゲーム側からの送信を完全に無視させる
+        end
     end
+    
+    -- それ以外（自分からの送信や他の通信）は通常通り実行
     return oldNamecall(self, ...)
 end)
+
 
 BoostBtn.MouseButton1Click:Connect(function()
     if not BoostBtn.Visible then return end
