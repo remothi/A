@@ -2581,7 +2581,7 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local LocalPlayer = Players.LocalPlayer
 
 -- 設定
-local OFFSET_Z = -10 -- さらに奥にずらす（-5から-10に変更）
+local OFFSET_Z = -30 -- さらに奥にずらす（-5から-10に変更）
 local INTERVAL = 0.7 -- 0.7秒おき
 
 -- 状態管理 (標準でON)
