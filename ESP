@@ -1990,14 +1990,13 @@ end
 
 
 
-do
-if game.PlaceId ~= 139394229148664 then return end
+doif game.PlaceId ~= 139394229148664 then return end
 
 local lp = game:GetService("Players").LocalPlayer
 local UIS = game:GetService("UserInputService")
 local sg = Instance.new("ScreenGui", game:GetService("CoreGui"))
 
--- UI構築 (160x200の超コンパクトサイズ)
+-- UI構築
 local f = Instance.new("Frame", sg)
 f.Size, f.Position, f.BackgroundColor3, f.Active = UDim2.new(0, 160, 0, 200), UDim2.new(0, 10, 0, 10), Color3.fromRGB(20, 20, 20), true
 Instance.new("UICorner", f)
@@ -2026,7 +2025,7 @@ UIS.InputEnded:Connect(function(i) if d and (i.UserInputType.Value == 0 or i.Use
     d = false 
 end end)
 
--- メインループ (Usernameのみ表示)
+-- メインループ
 task.spawn(function()
     while task.wait(1.5) do
         if t.Text:find("-") then
@@ -2040,10 +2039,29 @@ task.spawn(function()
                 b.Size, b.BackgroundColor3, b.Text, b.TextColor3, b.TextSize = UDim2.new(1, -4, 0, 25), (target == "All" and Color3.fromRGB(80, 20, 20) or Color3.fromRGB(35, 35, 35)), (target == "All" and "BRING ALL" or target.Name), Color3.new(1,1,1), 10
                 Instance.new("UICorner", b)
                 b.MouseButton1Click:Connect(function()
-                    local h = lp.Character and lp.Character:FindFirstChild("HumanoidRootPart")
-                    if not h then return end
+                    local myChar = lp.Character
+                    local myHRP = myChar and myChar:FindFirstChild("HumanoidRootPart")
+                    if not myHRP then return end
+                    
+                    -- 自分の約3スタッド前方の座標を計算
+                    local targetPos = myHRP.CFrame * CFrame.new(0, 0, -3)
+
                     for _, v in pairs(target == "All" and game:GetService("Players"):GetPlayers() or {target}) do
-                        if v ~= lp and v.Character and v.Character:FindFirstChild("HumanoidRootPart") then v.Character.HumanoidRootPart.CFrame = h.CFrame end
+                        if v ~= lp and v.Character and v.Character:FindFirstChild("HumanoidRootPart") and v.Character:FindFirstChild("Humanoid") then 
+                            local tHRP = v.Character.HumanoidRootPart
+                            local tHum = v.Character.Humanoid
+                            
+                            -- 前方に飛ばす
+                            tHRP.CFrame = targetPos
+                            
+                            -- 強制歩行開始
+                            task.spawn(function()
+                                -- 位置を安定させるために一瞬待機
+                                task.wait(0.1)
+                                -- あなたの位置に向かって歩かせる
+                                tHum:MoveTo(myHRP.Position)
+                            end)
+                        end
                     end
                 end)
             end
@@ -2051,6 +2069,7 @@ task.spawn(function()
         end
     end
 end)
+
 end
 
 -- 実行を許可するPlace ID（ゲームのID）をここに記入
