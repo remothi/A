@@ -2367,11 +2367,11 @@ end
 local PowerBox = Instance.new("TextBox")
 local PowerCorner = Instance.new("UICorner")
 PowerBox.Size = UDim2.new(0, 80, 0, 30)
-PowerBox.Position = UDim2.new(0.5, 10, 0.3, 55) -- BOOSTボタンの下
+PowerBox.Position = UDim2.new(0.5, 10, 0.3, 55)
 PowerBox.BackgroundColor3 = Color3.fromRGB(30, 30, 30)
 PowerBox.TextColor3 = Color3.new(1, 1, 1)
-PowerBox.Text = "500" -- 初期値
-PowerBox.PlaceholderText = "Power"
+PowerBox.Text = "500"
+PowerBox.PlaceholderText = "Boost Pwr"
 PowerBox.Font = Enum.Font.SourceSans
 PowerBox.TextSize = 14
 PowerBox.Visible = false
@@ -2405,10 +2405,12 @@ UICornerThumb.CornerRadius = UDim.new(1, 0); UICornerThumb.Parent = JoystickThum
 local isTracking = false 
 local isBoosting = false
 local BOOST_POWER = 500
+local currentTrackPower = 300 -- TRACK用のランダムパワー保持用
 local activeTouch = nil
 local currentInputVector = Vector3.new(0, 0, 0)
 local targetPlayer = nil
-local lastSwitchTime = 0
+local lastSwitchTime = 0     -- ターゲット切り替え用（4秒）
+local lastPowerTime = 0      -- パワー切り替え用（1秒）
 local MAX_RADIUS = 50
 
 local lp = game:GetService("Players").LocalPlayer
@@ -2418,11 +2420,7 @@ local targetRemote = nil
 -- 強度設定の反映
 PowerBox.FocusLost:Connect(function()
     local val = tonumber(PowerBox.Text)
-    if val then
-        BOOST_POWER = val
-    else
-        PowerBox.Text = tostring(BOOST_POWER) -- 数字以外なら戻す
-    end
+    if val then BOOST_POWER = val else PowerBox.Text = tostring(BOOST_POWER) end
 end)
 
 -- [[ ユーティリティ関数 ]]
@@ -2453,7 +2451,7 @@ local function updateButtonStyles()
     BoostBtn.BackgroundColor3 = isBoosting and Color3.fromRGB(50, 180, 50) or Color3.fromRGB(200, 50, 50)
 end
 
--- [[ gameType監視 ]]
+-- [[ gameType監視 & 自動起動 ]]
 local function checkAndInit()
     local gameType = RS:GetAttribute("gameType")
     local isTargetGame = (gameType == "VSFallingPanels")
@@ -2465,10 +2463,8 @@ local function checkAndInit()
         end
         if not TrackBtn.Visible then
             TrackBtn.Visible, BoostBtn.Visible, PowerBox.Visible = true, true, true
-            isTracking = true 
-            updateButtonStyles()
-            targetPlayer = getRandomPlayer()
-            lastSwitchTime = tick()
+            isTracking = true; updateButtonStyles()
+            targetPlayer = getRandomPlayer(); lastSwitchTime = tick()
         end
     else
         TrackBtn.Visible, BoostBtn.Visible, PowerBox.Visible = false, false, false
@@ -2508,25 +2504,19 @@ game:GetService("UserInputService").InputEnded:Connect(function(input)
     end
 end)
 
--- 送信ブロックの強化版
+-- [[ 通信フック：ゲーム側の信号を完全にブロック ]]
 local oldNamecall
 oldNamecall = hookmetamethod(game, "__namecall", function(self, ...)
     local method = getnamecallmethod()
-    local args = {...}
-    
-    -- 対象のリモート（targetRemote）への FireServer 呼び出しを監視
     if self == targetRemote and (method == "FireServer" or method == "fireServer") then
-        -- スクリプト自身（checkcaller）からの呼び出しでなければ、ゲーム側の信号としてブロック
         if not checkcaller() then
-            return nil -- ゲーム側からの送信を完全に無視させる
+            return nil -- ゲーム本体からの信号は捨てる
         end
     end
-    
-    -- それ以外（自分からの送信や他の通信）は通常通り実行
     return oldNamecall(self, ...)
 end)
 
-
+-- ボタン操作
 BoostBtn.MouseButton1Click:Connect(function()
     if not BoostBtn.Visible then return end
     isBoosting = not isBoosting; isTracking = false
@@ -2539,7 +2529,11 @@ TrackBtn.MouseButton1Click:Connect(function()
     isTracking = not isTracking; isBoosting = false
     JoystickFrame.Visible = false
     updateButtonStyles()
-    if isTracking then targetPlayer = getRandomPlayer(); lastSwitchTime = tick() end
+    if isTracking then 
+        targetPlayer = getRandomPlayer()
+        lastSwitchTime = tick()
+        currentTrackPower = math.random(100, 800) -- 初回ランダム
+    end
 end)
 
 -- [[ 送信ループ ]]
@@ -2549,22 +2543,32 @@ game:GetService("RunService").RenderStepped:Connect(function()
     if not char or not char:FindFirstChild("HumanoidRootPart") then return end
     
     local finalVec = Vector3.new(0, 0, 0)
+    
     if isBoosting then
         if currentInputVector.Magnitude > 0 then
             finalVec = getCameraRelative(currentInputVector) * BOOST_POWER
         end
     elseif isTracking then
-        if tick() - lastSwitchTime > 4 or not targetPlayer or not targetPlayer.Character or not targetPlayer.Character:FindFirstChild("HumanoidRootPart") then
-            targetPlayer = getRandomPlayer()
-            lastSwitchTime = tick()
+        local now = tick()
+        -- 1秒ごとに強さをランダムに変更
+        if now - lastPowerTime > 1 then
+            currentTrackPower = math.random(100, 1000) -- 100~1000の間でランダム
+            lastPowerTime = now
         end
+        -- 4秒ごとにターゲットをランダムに変更
+        if now - lastSwitchTime > 4 or not targetPlayer or not targetPlayer.Character or not targetPlayer.Character:FindFirstChild("HumanoidRootPart") then
+            targetPlayer = getRandomPlayer()
+            lastSwitchTime = now
+        end
+
         if targetPlayer and targetPlayer.Character and targetPlayer.Character:FindFirstChild("HumanoidRootPart") then
             local diff = (targetPlayer.Character.HumanoidRootPart.Position - char.HumanoidRootPart.Position)
-            finalVec = diff.Unit * (diff.Magnitude ^ 2)
+            finalVec = diff.Unit * currentTrackPower
         end
     end
     targetRemote:FireServer(finalVec)
 end)
+
 end -- [ここに2つ目のスクリプトの内容を貼り付け]
     end)
 
