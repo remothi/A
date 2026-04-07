@@ -2594,7 +2594,7 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local LocalPlayer = Players.LocalPlayer
 
 -- 設定
-local OFFSET_Z = -30 -- さらに奥にずらす（-5から-10に変更）
+local OFFSET_Z = -30 -- 自分からZ軸マイナス方向に30
 local INTERVAL = 0.7 -- 0.7秒おき
 
 -- 状態管理 (標準でON)
@@ -2605,7 +2605,7 @@ local isFinalGame = false
 local ScreenGui = Instance.new("ScreenGui")
 local ToggleButton = Instance.new("TextButton")
 
-ScreenGui.Name = "DebugToggleUI"
+ScreenGui.Name = "DebugToggleUI_Self"
 ScreenGui.Parent = game:GetService("CoreGui")
 ScreenGui.ResetOnSpawn = false
 ScreenGui.Enabled = false 
@@ -2619,32 +2619,23 @@ ToggleButton.Text = "ON"
 ToggleButton.TextColor3 = Color3.fromRGB(255, 255, 255)
 ToggleButton.TextScaled = true
 
--- 最も近いプレイヤーの座標を取得
-local function getTargetPosition()
+-- 自分の座標を取得してオフセットを加える関数
+local function getMyAdjustedPosition()
     local character = LocalPlayer.Character
-    local myPos = character and character:FindFirstChild("HumanoidRootPart") and character.HumanoidRootPart.Position
-    if not myPos then return nil end
-
-    local closestPlayer = nil
-    local shortestDistance = math.huge
-
-    for _, player in pairs(Players:GetPlayers()) do
-        if player ~= LocalPlayer and player.Character and player.Character:FindFirstChild("HumanoidRootPart") then
-            local dist = (player.Character.HumanoidRootPart.Position - myPos).Magnitude
-            if dist < shortestDistance then
-                shortestDistance = dist
-                closestPlayer = player
-            end
-        end
+    local root = character and character:FindFirstChild("HumanoidRootPart")
+    
+    if not root then 
+        warn("[Debug] 自分のRootPartが見つかりません。")
+        return nil 
     end
 
-    local targetName = closestPlayer and closestPlayer.Name or "自分"
-    local finalPos = closestPlayer and closestPlayer.Character.HumanoidRootPart.Position or myPos
+    local myPos = root.Position
+    -- 自分の位置からZ軸を-30調整
+    local adjustedPos = Vector3.new(myPos.X, myPos.Y, myPos.Z + OFFSET_Z)
     
-    -- Z軸をさらに奥（マイナス方向）へ調整
-    local adjustedPos = Vector3.new(finalPos.X, finalPos.Y, finalPos.Z + OFFSET_Z)
-    
-    print(string.format("[Debug] Target: %s | Interval: %.1fs | Pos: %s", targetName, INTERVAL, tostring(adjustedPos)))
+    print(string.format("[Debug] 自分固定送信 | 元: %.1f, %.1f, %.1f | 後: %.1f, %.1f, %.1f", 
+        myPos.X, myPos.Y, myPos.Z, adjustedPos.X, adjustedPos.Y, adjustedPos.Z))
+        
     return adjustedPos
 end
 
@@ -2662,7 +2653,7 @@ local function checkGameType()
     ScreenGui.Enabled = isFinalGame
     
     if isFinalGame then
-        print("[Debug] gameTypeがFinalGameになりました。実行を開始します。")
+        print("[Debug] FinalGameモード検知: 自分固定で実行します。")
     end
 end
 
@@ -2678,7 +2669,7 @@ task.spawn(function()
             local remote = moduleFolder and moduleFolder:FindFirstChild("ResetAooniPositionAction")
 
             if remote then
-                local targetPos = getTargetPosition()
+                local targetPos = getMyAdjustedPosition()
                 if targetPos then
                     pcall(function()
                         remote:FireServer(targetPos)
@@ -2686,9 +2677,10 @@ task.spawn(function()
                 end
             end
         end
-        task.wait(INTERVAL) -- 0.7秒待機
+        task.wait(INTERVAL)
     end
 end)
+
 
 
 
