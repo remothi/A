@@ -2035,30 +2035,41 @@ do
         UIListLayout.Padding = UDim.new(0, 5)
         UIListLayout.HorizontalAlignment = Enum.HorizontalAlignment.Center
 
-        -- ドラッグ機能の関数
+        -- ドラッグ機能の関数（修正版）
         local function enableDragging()
-            local dragToggle = false
-            local dragStart = nil
-            local startPos = nil
+            local dragging
+            local dragInput
+            local dragStart
+            local startPos
+
+            local function update(input)
+                local delta = input.Position - dragStart
+                MainFrame.Position = UDim2.new(startPos.X.Scale, startPos.X.Offset + delta.X, startPos.Y.Scale, startPos.Y.Offset + delta.Y)
+            end
 
             TitleButton.InputBegan:Connect(function(input)
                 if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
-                    dragToggle = true
+                    dragging = true
                     dragStart = input.Position
                     startPos = MainFrame.Position
+
+                    input.Changed:Connect(function()
+                        if input.UserInputState == Enum.UserInputState.End then
+                            dragging = false
+                        end
+                    end)
+                end
+            end)
+
+            TitleButton.InputChanged:Connect(function(input)
+                if input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch then
+                    dragInput = input
                 end
             end)
 
             UIS.InputChanged:Connect(function(input)
-                if dragToggle and (input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType.Touch) then
-                    local delta = input.Position - dragStart
-                    MainFrame.Position = UDim2.new(startPos.X.Scale, startPos.X.Offset + delta.X, startPos.Y.Scale, startPos.Y.Offset + delta.Y)
-                end
-            end)
-
-            UIS.InputEnded:Connect(function(input)
-                if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
-                    dragToggle = false
+                if input == dragInput and dragging then
+                    update(input)
                 end
             end)
         end
@@ -2129,6 +2140,7 @@ do
         -- 折りたたみイベント
         TitleButton.MouseButton1Click:Connect(function()
             local isClosing = ScrollingFrame.Visible
+            -- アニメーション中のドラッグ誤作動防止のため、サイズ変更のみ行う
             MainFrame:TweenSize(UDim2.new(0, 180, 0, isClosing and 30 or 250), "Out", "Quart", 0.3, true)
             ScrollingFrame.Visible = not isClosing
             TitleButton.Text = "Player Menu " .. (isClosing and "[+]" or "[-]")
@@ -2144,6 +2156,7 @@ do
         end)
     end
 end
+
 
 
 -- 実行を許可するPlace ID（ゲームのID）をここに記入
