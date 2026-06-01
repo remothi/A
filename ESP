@@ -3109,3 +3109,296 @@ end)
 
 connectItemFolder()
 end
+do
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local UserInputService = game:GetService("UserInputService")
+local CoreGui = game:GetService("CoreGui")
+local Players = game:GetService("Players")
+
+-- 既存のGUIが残っている場合は削除
+if CoreGui:FindFirstChild("CustomSquatGui") then
+    CoreGui.CustomSquatGui:Destroy()
+end
+
+-- ベースとなるScreenGuiの作成
+local screenGui = Instance.new("ScreenGui")
+screenGui.Name = "CustomSquatGui"
+screenGui.ResetOnSpawn = false
+screenGui.Parent = CoreGui or Players.LocalPlayer:WaitForChild("PlayerGui")
+
+-- 状態管理変数
+local sliderValue = 0.5
+local sliderToggle = false
+local randomToggle = true -- 【変更点】最初からON状態に設定
+
+local chargeRemote = nil
+local releaseRemote = nil
+
+----------------------------------------------------------------
+-- UIレイアウト構築
+----------------------------------------------------------------
+
+-- メインフレーム（初期状態は Visible = false で非表示）
+local mainFrame = Instance.new("Frame")
+mainFrame.Name = "MainFrame"
+mainFrame.Size = UDim2.new(0, 260, 0, 220)
+mainFrame.Position = UDim2.new(0.5, -130, 0.4, -110)
+mainFrame.BackgroundColor3 = Color3.fromRGB(30, 30, 35)
+mainFrame.BorderSizePixel = 0
+mainFrame.Active = true
+mainFrame.Visible = false 
+mainFrame.Parent = screenGui
+
+local mainCorner = Instance.new("UICorner")
+mainCorner.CornerRadius = UDim.new(0, 10)
+mainCorner.Parent = mainFrame
+
+-- タイトルバー（ドラッグ用）
+local titleBar = Instance.new("TextLabel")
+titleBar.Name = "TitleBar"
+titleBar.Size = UDim2.new(1, 0, 0, 35)
+titleBar.BackgroundColor3 = Color3.fromRGB(40, 40, 45)
+titleBar.Text = "  Squat Controller"
+titleBar.TextColor3 = Color3.fromRGB(255, 255, 255)
+titleBar.TextSize = 16
+titleBar.Font = Enum.Font.SourceSansBold
+titleBar.TextXAlignment = Enum.TextXAlignment.Left
+titleBar.Active = true
+titleBar.Parent = mainFrame
+
+local titleCorner = Instance.new("UICorner")
+titleCorner.CornerRadius = UDim.new(0, 10)
+titleCorner.Parent = titleBar
+
+-- スライダー数値ラベル
+local sliderLabel = Instance.new("TextLabel")
+sliderLabel.Size = UDim2.new(1, -20, 0, 20)
+sliderLabel.Position = UDim2.new(0, 10, 0, 45)
+sliderLabel.BackgroundTransparency = 1
+sliderLabel.Text = "Value: 0.50"
+sliderLabel.TextColor3 = Color3.fromRGB(200, 200, 200)
+sliderLabel.TextSize = 14
+sliderLabel.Font = Enum.Font.SourceSansSemibold
+sliderLabel.TextXAlignment = Enum.TextXAlignment.Left
+sliderLabel.Parent = mainFrame
+
+-- スライダーのレール
+local sliderRail = Instance.new("Frame")
+sliderRail.Size = UDim2.new(1, -20, 0, 8)
+sliderRail.Position = UDim2.new(0, 10, 0, 70)
+sliderRail.BackgroundColor3 = Color3.fromRGB(55, 55, 60)
+sliderRail.BorderSizePixel = 0
+sliderRail.Parent = mainFrame
+
+local railCorner = Instance.new("UICorner")
+railCorner.CornerRadius = UDim.new(1, 0)
+railCorner.Parent = sliderRail
+
+-- スライダーのつまみ
+local sliderButton = Instance.new("TextButton")
+sliderButton.Size = UDim2.new(0, 20, 0, 20)
+sliderButton.Position = UDim2.new(0.5, -10, 0.5, -10)
+sliderButton.BackgroundColor3 = Color3.fromRGB(0, 150, 255)
+sliderButton.Text = ""
+sliderButton.Parent = sliderRail
+
+local btnCorner = Instance.new("UICorner")
+btnCorner.CornerRadius = UDim.new(1, 0)
+btnCorner.Parent = sliderButton
+
+-- ボタン1：スライダー連打
+local toggleButton1 = Instance.new("TextButton")
+toggleButton1.Size = UDim2.new(1, -20, 0, 40)
+toggleButton1.Position = UDim2.new(0, 10, 0, 100)
+toggleButton1.BackgroundColor3 = Color3.fromRGB(180, 60, 60)
+toggleButton1.Text = "Slider Loop: OFF"
+toggleButton1.TextColor3 = Color3.fromRGB(255, 255, 255)
+toggleButton1.TextSize = 16
+toggleButton1.Font = Enum.Font.SourceSansBold
+toggleButton1.Parent = mainFrame
+
+local t1Corner = Instance.new("UICorner")
+t1Corner.CornerRadius = UDim.new(0, 6)
+t1Corner.Parent = toggleButton1
+
+-- ボタン2：ランダム連打
+local toggleButton2 = Instance.new("TextButton")
+toggleButton2.Size = UDim2.new(1, -20, 0, 40)
+toggleButton2.Position = UDim2.new(0, 10, 0, 155)
+-- 【変更点】初期ビジュアルを最初からON（緑色）の状態にする
+toggleButton2.BackgroundColor3 = Color3.fromRGB(60, 180, 60)
+toggleButton2.Text = "Random Loop: ON"
+toggleButton2.TextColor3 = Color3.fromRGB(255, 255, 255)
+toggleButton2.TextSize = 16
+toggleButton2.Font = Enum.Font.SourceSansBold
+toggleButton2.Parent = mainFrame
+
+local t2Corner = Instance.new("UICorner")
+t2Corner.CornerRadius = UDim.new(0, 6)
+t2Corner.Parent = toggleButton2
+
+----------------------------------------------------------------
+-- ロジック・処理の実装
+----------------------------------------------------------------
+
+-- 1. スマホ対応タイトルバートラッグ処理
+local dragging, dragInput, dragStart, startPos
+titleBar.InputBegan:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+        dragging = true
+        dragStart = input.Position
+        startPos = mainFrame.Position
+        
+        input.Changed:Connect(function()
+            if input.UserInputState == Enum.UserInputState.End then
+                dragging = false
+            end
+        end)
+    end
+end)
+
+titleBar.InputChanged:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch then
+        dragInput = input
+    end
+end)
+
+UserInputService.InputChanged:Connect(function(input)
+    if input == dragInput and dragging then
+        local delta = input.Position - dragStart
+        mainFrame.Position = UDim2.new(startPos.X.Scale, startPos.X.Offset + delta.X, startPos.Y.Scale, startPos.Y.Offset + delta.Y)
+    end
+end)
+
+-- 2. スマホ対応スライダー処理 (0.0 〜 1.0)
+local sliderActive = false
+local function updateSlider(input)
+    local mouseX = input.Position.X
+    local railLeft = sliderRail.AbsolutePosition.X
+    local railWidth = sliderRail.AbsoluteSize.X
+    local percentage = math.clamp((mouseX - railLeft) / railWidth, 0, 1)
+    
+    sliderButton.Position = UDim2.new(percentage, -10, 0.5, -10)
+    sliderValue = percentage
+    sliderLabel.Text = string.format("Value: %.2f", sliderValue)
+end
+
+sliderButton.InputBegan:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+        sliderActive = true
+    end
+end)
+
+UserInputService.InputEnded:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+        sliderActive = false
+    end
+end)
+
+UserInputService.InputChanged:Connect(function(input)
+    if sliderActive and (input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch) then
+        updateSlider(input)
+    end
+end)
+
+-- 3. ボタンの同期・排他制御
+local function updateVisuals()
+    if sliderToggle then
+        toggleButton1.BackgroundColor3 = Color3.fromRGB(60, 180, 60)
+        toggleButton1.Text = "Slider Loop: ON"
+    else
+        toggleButton1.BackgroundColor3 = Color3.fromRGB(180, 60, 60)
+        toggleButton1.Text = "Slider Loop: OFF"
+    end
+    
+    if randomToggle then
+        toggleButton2.BackgroundColor3 = Color3.fromRGB(60, 180, 60)
+        toggleButton2.Text = "Random Loop: ON"
+    else
+        toggleButton2.BackgroundColor3 = Color3.fromRGB(180, 60, 60)
+        toggleButton2.Text = "Random Loop: OFF"
+    end
+end
+
+toggleButton1.MouseButton1Click:Connect(function()
+    sliderToggle = not sliderToggle
+    if sliderToggle then
+        randomToggle = false
+    end
+    updateVisuals()
+end)
+
+toggleButton2.MouseButton1Click:Connect(function()
+    randomToggle = not randomToggle
+    if randomToggle then
+        sliderToggle = false
+    end
+    updateVisuals()
+end)
+
+-- Attributeの監視と動的参照
+local function checkGameType()
+    local currentGameType = ReplicatedStorage:GetAttribute("gameType")
+    
+    if currentGameType == "VSSquatJump" then
+        if not chargeRemote or not releaseRemote then
+            local inGame = ReplicatedStorage:WaitForChild("InGame", 5)
+            if inGame then
+                local instances = inGame:WaitForChild("Instances", 5)
+                if instances then
+                    local remoteEvent = instances:WaitForChild("RemoteEvent", 5)
+                    if remoteEvent then
+                        chargeRemote = remoteEvent:WaitForChild("VSSquatChargeAction", 5)
+                        releaseRemote = remoteEvent:WaitForChild("VSSquatReleaseAction", 5)
+                    end
+                end
+            end
+        end
+        
+        if chargeRemote and releaseRemote then
+            mainFrame.Visible = true
+        else
+            mainFrame.Visible = false
+        end
+    else
+        mainFrame.Visible = false
+        -- 別のゲームタイプになった時は安全のためにトグルを初期状態（ランダムON、スライダーOFF）に戻す
+        sliderToggle = false
+        randomToggle = true
+        updateVisuals()
+    end
+end
+
+checkGameType()
+ReplicatedStorage:GetAttributeChangedSignal("gameType"):Connect(checkGameType)
+
+-- 4. リモート交互連打ループ（スライダー用）
+task.spawn(function()
+    while true do
+        if sliderToggle and chargeRemote and releaseRemote then
+            chargeRemote:FireServer()
+            task.wait(0.05)
+            releaseRemote:FireServer(sliderValue)
+            task.wait(0.05)
+        else
+            task.wait(0.1)
+        end
+    end
+end)
+
+-- 5. リモート交互連打ループ（ランダム用）
+task.spawn(function()
+    while true do
+        if randomToggle and chargeRemote and releaseRemote then
+            local randomValue = math.random()
+            chargeRemote:FireServer()
+            task.wait(0.05)
+            releaseRemote:FireServer(randomValue)
+            task.wait(0.05)
+        else
+            task.wait(0.1)
+        end
+    end
+end)
+
+end
