@@ -3402,4 +3402,206 @@ end)
 
 connectItemFolder()
 end
+do
+local Players = game:GetService("Players")
+local RunService = game:GetService("RunService")
+local UserInputService = game:GetService("UserInputService")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local localPlayer = Players.LocalPlayer
 
+-- 重複起動防止のクリーンアップ処理
+if _G.SquatJumpPlatformBypass then
+	_G.SquatJumpPlatformBypass()
+end
+
+-- =============================================================================
+-- [1] GUIの作成 (初期位置: 中央より少し上 / ドラッグ可能 / 削除ボタン)
+-- =============================================================================
+local ScreenGui = Instance.new("ScreenGui")
+ScreenGui.Name = "SquatJumpPlatformUI"
+ScreenGui.ResetOnSpawn = false
+ScreenGui.Enabled = false
+ScreenGui.Parent = localPlayer:WaitForChild("PlayerGui")
+
+local MainFrame = Instance.new("Frame")
+MainFrame.Size = UDim2.new(0, 150, 0, 90)
+MainFrame.Position = UDim2.new(0.5, -75, 0.25, -45) -- 中央より少し上
+MainFrame.BackgroundColor3 = Color3.fromRGB(30, 30, 30)
+MainFrame.BorderSizePixel = 0
+MainFrame.Active = true
+MainFrame.Parent = ScreenGui
+
+local UICorner = Instance.new("UICorner")
+UICorner.CornerRadius = UDim.new(0, 8)
+UICorner.Parent = MainFrame
+
+local Title = Instance.new("TextLabel")
+Title.Size = UDim2.new(1, -25, 0, 25)
+Title.BackgroundTransparency = 1
+Title.Text = " Squat Jump v3"
+Title.TextColor3 = Color3.fromRGB(255, 255, 255)
+Title.TextXAlignment = Enum.TextXAlignment.Left
+Title.Font = Enum.Font.SourceSansBold
+Title.TextSize = 14
+Title.Parent = MainFrame
+
+local CloseButton = Instance.new("TextButton")
+CloseButton.Size = UDim2.new(0, 20, 0, 20)
+CloseButton.Position = UDim2.new(1, -22, 0, 2)
+CloseButton.BackgroundColor3 = Color3.fromRGB(180, 50, 50)
+CloseButton.Text = "X"
+CloseButton.TextColor3 = Color3.fromRGB(255, 255, 255)
+CloseButton.Font = Enum.Font.SourceSansBold
+CloseButton.TextSize = 12
+CloseButton.Parent = MainFrame
+
+local CloseCorner = Instance.new("UICorner")
+CloseCorner.CornerRadius = UDim.new(0, 4)
+CloseCorner.Parent = CloseButton
+
+local ToggleButton = Instance.new("TextButton")
+ToggleButton.Size = UDim2.new(0, 130, 0, 45)
+ToggleButton.Position = UDim2.new(0, 10, 0, 35)
+ToggleButton.BackgroundColor3 = Color3.fromRGB(60, 60, 60)
+ToggleButton.Text = "Platform: OFF"
+ToggleButton.TextColor3 = Color3.fromRGB(255, 255, 255)
+ToggleButton.Font = Enum.Font.SourceSansBold
+ToggleButton.TextSize = 16
+ToggleButton.Parent = MainFrame
+
+local ToggleCorner = Instance.new("UICorner")
+ToggleCorner.CornerRadius = UDim.new(0, 6)
+ToggleCorner.Parent = ToggleButton
+
+-- モバイル対応ドラッグ処理
+local dragging, dragInput, dragStart, startPos
+local function update(input)
+	local delta = input.Position - dragStart
+	MainFrame.Position = UDim2.new(startPos.X.Scale, startPos.X.Offset + delta.X, startPos.Y.Scale, startPos.Y.Offset + delta.Y)
+end
+
+MainFrame.InputBegan:Connect(function(input)
+	if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+		dragging = true
+		dragStart = input.Position
+		startPos = MainFrame.Position
+		input.Changed:Connect(function()
+			if input.UserInputState == Enum.UserInputState.End then dragging = false end
+		end)
+	end
+end)
+
+MainFrame.InputChanged:Connect(function(input)
+	if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+		dragInput = input
+	end
+end)
+
+UserInputService.InputChanged:Connect(function(input)
+	if input == dragInput and dragging then update(input) end
+end)
+
+-- =============================================================================
+-- [2] 強化版プラットフォーム追従システム (サイズ12x12 & PreRender同期)
+-- =============================================================================
+local isToggled = false
+local platformPart = nil
+
+local function createPlatform()
+	if platformPart and platformPart.Parent then return end
+	
+	platformPart = Instance.new("Part")
+	platformPart.Name = "SquatBypassPlatform"
+	platformPart.Size = Vector3.new(12, 0.5, 12) -- 歩いてもはみ出さない広さ
+	platformPart.Anchored = true
+	platformPart.CanCollide = true
+	platformPart.Transparency = 1 -- 完全透明
+	platformPart.Parent = workspace
+end
+
+local function removePlatform()
+	if platformPart then
+		platformPart:Destroy()
+		platformPart = nil
+	end
+end
+
+ToggleButton.MouseButton1Click:Connect(function()
+	isToggled = not isToggled
+	if isToggled then
+		ToggleButton.BackgroundColor3 = Color3.fromRGB(50, 150, 50)
+		ToggleButton.Text = "Platform: ON"
+		createPlatform()
+	else
+		ToggleButton.BackgroundColor3 = Color3.fromRGB(60, 60, 60)
+		ToggleButton.Text = "Platform: OFF"
+		removePlatform()
+	end
+end)
+
+-- 移動のラグをゼロにするためPreRenderで同期
+local bypassConnection
+bypassConnection = RunService.PreRender:Connect(function()
+	if not isToggled then 
+		removePlatform()
+		return 
+	end
+	
+	local char = localPlayer.Character
+	local hrp = char and char:FindFirstChild("HumanoidRootPart")
+	local hum = char and char:FindFirstChildWhichIsA("Humanoid")
+	
+	if hrp and hum and hum.Health > 0 then
+		local raycastParams = RaycastParams.new()
+		raycastParams.FilterDescendantsInstances = {char, platformPart}
+		raycastParams.FilterType = Enum.RaycastFilterType.Exclude
+		
+		local rayResult = workspace:Raycast(hrp.Position, Vector3.new(0, -20, 0), raycastParams)
+		
+		if rayResult then
+			-- 元の地面から 0.5 マス上に浮かせる位置調整
+			local targetFloorY = rayResult.Position.Y + 0.5
+			local platformY = targetFloorY - 0.25
+			
+			createPlatform()
+			platformPart.CFrame = CFrame.new(hrp.Position.X, platformY, hrp.Position.Z)
+		else
+			removePlatform()
+		end
+	else
+		removePlatform()
+	end
+end)
+
+-- =============================================================================
+-- [3] クリーンアップ & gameType 監視
+-- =============================================================================
+local function shutdown()
+	if bypassConnection then bypassConnection:Disconnect() end
+	removePlatform()
+	ScreenGui:Destroy()
+end
+_G.SquatJumpPlatformBypass = shutdown
+
+CloseButton.MouseButton1Click:Connect(shutdown)
+
+local function checkGameType()
+	local success, currentType = pcall(function()
+		return ReplicatedStorage:GetAttribute("gameType")
+	end)
+	
+	if success and currentType == "SquatJump" then
+		ScreenGui.Enabled = true
+	else
+		ScreenGui.Enabled = false
+		isToggled = false
+		ToggleButton.BackgroundColor3 = Color3.fromRGB(60, 60, 60)
+		ToggleButton.Text = "Platform: OFF"
+		removePlatform()
+	end
+end
+
+checkGameType()
+ReplicatedStorage:GetAttributeChangedSignal("gameType"):Connect(checkGameType)
+
+end
