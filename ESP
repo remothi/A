@@ -3605,3 +3605,293 @@ checkGameType()
 ReplicatedStorage:GetAttributeChangedSignal("gameType"):Connect(checkGameType)
 
 end
+do
+local Players = game:GetService("Players")
+
+local RunService = game:GetService("RunService")
+
+local UserInputService = game:GetService("UserInputService")
+
+local GuiService = game:GetService("GuiService")
+
+local Player = Players.LocalPlayer
+
+local PlayerGui = Player:WaitForChild("PlayerGui")
+
+--========================
+
+-- 対象フォルダ
+
+--========================
+
+local TargetFolders = {
+
+	PassTheBomb = true,
+	FallingPanels = true,
+	SquatJump = true,
+	VSPassTheBomb = true,
+	VsFallingPanels = true,
+	VSBasketball = true,
+
+}
+
+--========================
+
+-- GUI作成
+
+--========================
+
+local ScreenGui = Instance.new("ScreenGui")
+
+ScreenGui.Name = "AutoTouchUI"
+
+ScreenGui.ResetOnSpawn = false
+
+ScreenGui.Enabled = false
+
+ScreenGui.Parent = PlayerGui
+
+local Frame = Instance.new("Frame")
+
+Frame.Size = UDim2.new(0, 220, 0, 160)
+
+Frame.Position = UDim2.new(0.5, -110, 0.5, -80)
+
+Frame.Parent = ScreenGui
+
+Instance.new("UICorner", Frame)
+
+Instance.new("UIStroke", Frame)
+
+local Toggle = Instance.new("TextButton")
+
+Toggle.Size = UDim2.new(1, -20, 0, 40)
+
+Toggle.Position = UDim2.new(0, 10, 0, 10)
+
+Toggle.Text = "CanTouch OFF : false"
+
+Toggle.Parent = Frame
+
+local TouchUpper = Instance.new("TextButton")
+
+TouchUpper.Size = UDim2.new(1, -20, 0, 40)
+
+TouchUpper.Position = UDim2.new(0, 10, 0, 60)
+
+TouchUpper.Text = "上をタッチ"
+
+TouchUpper.Parent = Frame
+
+local TouchLower = Instance.new("TextButton")
+
+TouchLower.Size = UDim2.new(1, -20, 0, 40)
+
+TouchLower.Position = UDim2.new(0, 10, 0, 110)
+
+TouchLower.Text = "下をタッチ"
+
+TouchLower.Parent = Frame
+
+--========================
+
+-- GUI表示制御
+
+--========================
+
+local function UpdateGui()
+
+	for name in pairs(TargetFolders) do
+		if workspace:FindFirstChild(name) then
+			ScreenGui.Enabled = true
+			return
+		end
+	end
+	ScreenGui.Enabled = false
+
+end
+
+workspace.ChildAdded:Connect(UpdateGui)
+
+workspace.ChildRemoved:Connect(UpdateGui)
+
+UpdateGui()
+
+--========================
+
+-- CanTouch制御
+
+--========================
+
+local CanTouchOff = false
+
+local function ApplyToFolder(folder)
+
+	local location = folder:FindFirstChild("Location")
+	if not location then return end
+	for _, sideName in ipairs({"Upper", "Lower"}) do
+		local side = location:FindFirstChild(sideName)
+		if side then
+			local part = side:FindFirstChild("LocationCollisionPart")
+			if part and part:IsA("BasePart") then
+				part.CanTouch = not CanTouchOff
+			end
+		end
+	end
+
+end
+
+local function ApplyAll()
+
+	for name in pairs(TargetFolders) do
+		local folder = workspace:FindFirstChild(name)
+		if folder then
+			ApplyToFolder(folder)
+		end
+	end
+	Toggle.Text = "CanTouch OFF : " .. tostring(CanTouchOff)
+
+end
+
+Toggle.MouseButton1Click:Connect(function()
+
+	CanTouchOff = not CanTouchOff
+	ApplyAll()
+
+end)
+
+workspace.ChildAdded:Connect(function(child)
+
+	if TargetFolders[child.Name] then
+		task.wait(0.2)
+		ApplyAll()
+	end
+
+end)
+
+RunService.Heartbeat:Connect(function()
+
+	if CanTouchOff then
+		ApplyAll()
+	end
+
+end)
+
+--========================
+
+-- 上下タッチ
+
+--========================
+
+local function getHRP()
+
+	local char = Player.Character
+	if not char then return nil end
+	return char:FindFirstChild("HumanoidRootPart")
+
+end
+
+local function touchPart(part)
+
+	local hrp = getHRP()
+	if not hrp or not part then return end
+	firetouchinterest(hrp, part, 0)
+	task.wait()
+	firetouchinterest(hrp, part, 1)
+
+end
+
+TouchUpper.MouseButton1Click:Connect(function()
+
+	for name in pairs(TargetFolders) do
+		local folder = workspace:FindFirstChild(name)
+		if folder then
+			local part = folder:FindFirstChild("Location")
+				and folder.Location:FindFirstChild("Upper")
+				and folder.Location.Upper:FindFirstChild("LocationCollisionPart")
+			if part then
+				touchPart(part)
+				return
+			end
+		end
+	end
+
+end)
+
+TouchLower.MouseButton1Click:Connect(function()
+
+	for name in pairs(TargetFolders) do
+		local folder = workspace:FindFirstChild(name)
+		if folder then
+			local part = folder:FindFirstChild("Location")
+				and folder.Location:FindFirstChild("Lower")
+				and folder.Location.Lower:FindFirstChild("LocationCollisionPart")
+			if part then
+				touchPart(part)
+				return
+			end
+		end
+	end
+
+end)
+
+--========================
+
+-- 🔥 ドラッグ + 画面外防止
+
+--========================
+
+local dragging = false
+
+local dragStart
+
+local startPos
+
+Frame.Active = true
+
+local function clampToScreen(pos)
+
+	local viewport = workspace.CurrentCamera.ViewportSize
+	local size = Frame.AbsoluteSize
+	local x = math.clamp(pos.X.Offset, 0, viewport.X - size.X)
+	local y = math.clamp(pos.Y.Offset, 0, viewport.Y - size.Y)
+	return UDim2.new(0, x, 0, y)
+
+end
+
+Frame.InputBegan:Connect(function(input)
+
+	if input.UserInputType == Enum.UserInputType.MouseButton1
+	or input.UserInputType == Enum.UserInputType.Touch then
+		dragging = true
+		dragStart = input.Position
+		startPos = Frame.Position
+	end
+
+end)
+
+Frame.InputEnded:Connect(function(input)
+
+	if input.UserInputType == Enum.UserInputType.MouseButton1
+	or input.UserInputType == Enum.UserInputType.Touch then
+		dragging = false
+	end
+
+end)
+
+UserInputService.InputChanged:Connect(function(input)
+
+	if not dragging then return end
+	if input.UserInputType ~= Enum.UserInputType.MouseMovement
+	and input.UserInputType ~= Enum.UserInputType.Touch then return end
+	local delta = input.Position - dragStart
+	local newPos = UDim2.new(
+		startPos.X.Scale,
+		startPos.X.Offset + delta.X,
+		startPos.Y.Scale,
+		startPos.Y.Offset + delta.Y
+	)
+	Frame.Position = clampToScreen(newPos)
+
+end)
+end
