@@ -1,141 +1,349 @@
--- 【重複防止ガード】
+-- 【重複防止＆完全停止チェック】
 if _G.ScriptRunning then
-    if game.Players.LocalPlayer.PlayerGui:FindFirstChild("LeaderConfigGui") then
-        game.Players.LocalPlayer.PlayerGui.LeaderConfigGui:Destroy()
+    if game.Players.LocalPlayer.PlayerGui:FindFirstChild("CustomConfigGui") then
+        game.Players.LocalPlayer.PlayerGui.CustomConfigGui:Destroy()
     end
+end
+if _G.ScriptPermanentlyStopped then 
+    print("[SYSTEM] スクリプトは完全に停止されています。起動しません。")
+    return 
 end
 _G.ScriptRunning = true
 
+local PathfindingService = game:GetService("PathfindingService")
 local TeleportService = game:GetService("TeleportService")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local HttpService = game:GetService("HttpService")
 local Players = game:GetService("Players")
+local RunService = game:GetService("RunService")
 local player = Players.LocalPlayer
-local runService = game:GetService("RunService")
 
-local fileName = "LeaderConfig.txt"
+local configFileName = "CustomModeConfig.txt"
+local blacklistFileName = "CustomBlacklistConfig.txt"
+local webhookUrl = "https://discord.com/api/webhooks/1469934933786234952/0ehi2Kh4C05ew0-UQdZiIdQ86_FJRBCBqboblpzcm5sC9mcbtbSCKePPovsfoDtGsZ-z"
 
-local function saveLeaderName(name)
-    if writefile then writefile(fileName, tostring(name)) end
-    print("[SYSTEM] Saved: " .. name)
-end
+-- --- [データ管理] ---
+local currentMode = "Normal"
+local blacklist = {}
 
-local function loadLeaderName()
-    if isfile and isfile(fileName) then
-        local res = readfile(fileName)
-        if res and res ~= "" then return tostring(res) end
+local function saveConfig()
+    if writefile then
+        writefile(configFileName, currentMode)
+        writefile(blacklistFileName, HttpService:JSONEncode(blacklist))
     end
-    return player.Name
 end
 
-local currentLeader = loadLeaderName()
+local function loadConfig()
+    if isfile and isfile(configFileName) then
+        local res = readfile(configFileName)
+        if res and res ~= "" then currentMode = res end
+    end
+    if isfile and isfile(blacklistFileName) then
+        local res = readfile(blacklistFileName)
+        if res and res ~= "" then
+            pcall(function() blacklist = HttpService:JSONDecode(res) end)
+        end
+    end
+end
+loadConfig()
 
-local function createGui()
-    if player.PlayerGui:FindFirstChild("LeaderConfigGui") then return end
-    local sg = Instance.new("ScreenGui", player.PlayerGui)
-    sg.Name = "LeaderConfigGui"
-    sg.ResetOnSpawn = false
-    local f = Instance.new("Frame", sg)
-    f.Size = UDim2.new(0, 200, 0, 90)
-    f.Position = UDim2.new(0.5, -100, 0, 60)
-    f.BackgroundColor3 = Color3.fromRGB(30, 30, 30)
-    f.Draggable = true
-    f.Active = true
-    local tb = Instance.new("TextBox", f)
-    tb.Size = UDim2.new(1, -20, 0, 35)
-    tb.Position = UDim2.new(0, 10, 0, 10)
-    tb.Text = currentLeader
-    local btn = Instance.new("TextButton", f)
-    btn.Size = UDim2.new(1, -20, 0, 30)
-    btn.Position = UDim2.new(0, 10, 0, 50)
-    btn.Text = "Save & Apply"
-    btn.MouseButton1Click:Connect(function()
-        currentLeader = tb.Text
-        saveLeaderName(currentLeader)
+-- --- [GUI構築] ---
+local sg = Instance.new("ScreenGui", player.PlayerGui)
+sg.Name = "CustomConfigGui"
+sg.ResetOnSpawn = false
+
+local mainFrame = Instance.new("Frame", sg)
+mainFrame.Size = UDim2.new(0, 260, 0, 240)
+mainFrame.Position = UDim2.new(0.5, -130, 0.3, 0)
+mainFrame.BackgroundColor3 = Color3.fromRGB(35, 35, 35)
+mainFrame.Active = true
+mainFrame.Draggable = true
+
+local modeBtn = Instance.new("TextButton", mainFrame)
+modeBtn.Size = UDim2.new(1, -20, 0, 35)
+modeBtn.Position = UDim2.new(0, 10, 0, 10)
+modeBtn.BackgroundColor3 = Color3.fromRGB(60, 60, 60)
+modeBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+modeBtn.Text = "Mode: " .. currentMode
+modeBtn.MouseButton1Click:Connect(function()
+    if currentMode == "Normal" then currentMode = "Pro"
+    elseif currentMode == "Pro" then currentMode = "Voice"
+    else currentMode = "Normal" end
+    modeBtn.Text = "Mode: " .. currentMode
+    saveConfig()
+end)
+
+local blInput = Instance.new("TextBox", mainFrame)
+blInput.Size = UDim2.new(0, 150, 0, 30)
+blInput.Position = UDim2.new(0, 10, 0, 55)
+blInput.Text = ""
+blInput.PlaceholderText = "User Name/ID"
+blInput.BackgroundColor3 = Color3.fromRGB(45, 45, 45)
+blInput.TextColor3 = Color3.fromRGB(255, 255, 255)
+
+local blAddBtn = Instance.new("TextButton", mainFrame)
+blAddBtn.Size = UDim2.new(0, 40, 0, 30)
+blAddBtn.Position = UDim2.new(0, 165, 0, 55)
+blAddBtn.Text = "Add"
+blAddBtn.BackgroundColor3 = Color3.fromRGB(40, 100, 40)
+blAddBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+
+local blRemBtn = Instance.new("TextButton", mainFrame)
+blRemBtn.Size = UDim2.new(0, 40, 0, 30)
+blRemBtn.Position = UDim2.new(0, 210, 0, 55)
+blRemBtn.Text = "Rem"
+blRemBtn.BackgroundColor3 = Color3.fromRGB(100, 40, 40)
+blRemBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+
+local blListLabel = Instance.new("TextLabel", mainFrame)
+blListLabel.Size = UDim2.new(1, -20, 0, 80)
+blListLabel.Position = UDim2.new(0, 10, 0, 95)
+blListLabel.BackgroundColor3 = Color3.fromRGB(25, 25, 25)
+blListLabel.TextColor3 = Color3.fromRGB(200, 200, 200)
+blListLabel.TextSize = 12
+blListLabel.TextWrapped = true
+blListLabel.TextXAlignment = Enum.TextXAlignment.Left
+blListLabel.TextYAlignment = Enum.TextYAlignment.Top
+
+local function updateBlacklistUI()
+    local text = "Blacklist:\n"
+    for _, v in ipairs(blacklist) do text = text .. tostring(v) .. ", " end
+    blListLabel.Text = text
+end
+updateBlacklistUI()
+
+blAddBtn.MouseButton1Click:Connect(function()
+    local target = blInput.Text
+    if target ~= "" then
+        table.insert(blacklist, target)
+        saveConfig()
+        updateBlacklistUI()
+        blInput.Text = ""
+    end
+end)
+
+blRemBtn.MouseButton1Click:Connect(function()
+    local target = blInput.Text
+    for i, v in ipairs(blacklist) do
+        if tostring(v) == target then
+            table.remove(blacklist, i)
+            break
+        end
+    end
+    saveConfig()
+    updateBlacklistUI()
+    blInput.Text = ""
+end)
+
+local stopBtn = Instance.new("TextButton", mainFrame)
+stopBtn.Size = UDim2.new(1, -20, 0, 40)
+stopBtn.Position = UDim2.new(0, 10, 0, 185)
+stopBtn.BackgroundColor3 = Color3.fromRGB(150, 0, 0)
+stopBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+stopBtn.Text = "STOP (Disable Auto-load)"
+
+local scriptActive = true
+stopBtn.MouseButton1Click:Connect(function()
+    scriptActive = false
+    _G.ScriptRunning = false
+    _G.ScriptPermanentlyStopped = true
+    if sg then sg:Destroy() end
+    print("[SYSTEM] 完全停止ボタンが押されました。次回以降自動テレポートも行いません。")
+end)
+
+-- --- [ブラックリストチェック関数] ---
+local function isBlacklistPresent()
+    for _, p in pairs(Players:GetPlayers()) do
+        for _, b in ipairs(blacklist) do
+            if tostring(p.Name) == tostring(b) or tostring(p.UserId) == tostring(b) then
+                return true
+            end
+        end
+    end
+    return false
+end
+
+-- --- [自動テレポート処理] ---
+if game.PlaceId == 104592421039274 or game.PlaceId == 139394229148664 then
+    task.wait(1)
+    if scriptActive then
+        local targetPlace = 95436277090085
+        if currentMode == "Pro" then targetPlace = 107066417917236
+        elseif currentMode == "Voice" then targetPlace = 79254735988889 end
+        
+        print("[SYSTEM] ロビーを検知。モードに応じた場所に移動します: " .. currentMode)
+        TeleportService:Teleport(targetPlace, player)
+    end
+end
+
+-- --- [ブルームーン遭遇通知処理] ---
+if game.PlaceId == 80748316549650 then
+    task.spawn(function()
+        task.wait(5)
+        if not scriptActive then return end
+        
+        local myName = player.Name
+        local others = {}
+        for _, p in pairs(Players:GetPlayers()) do
+            if p ~= player then table.insert(others, p.Name) end
+        end
+        local othersStr = #others > 0 and table.concat(others, ", ") or "なし"
+        
+        local data = {
+            ["content"] = "【ブルームーン遭遇】\n・プレイヤー名: " .. myName .. "\n・同室の他プレイヤー: " .. othersStr
+        }
+        
+        local success, err = pcall(function()
+            local request = syn and syn.request or http and http.request or http_request or fluxus and fluxus.request or request
+            if request then
+                request({
+                    Url = webhookUrl,
+                    Method = "POST",
+                    Headers = {["Content-Type"] = "application/json"},
+                    Body = HttpService:JSONEncode(data)
+                })
+            end
+        end)
+        if success then print("[SYSTEM] Discordにブルームーン通知を送信しました。") else warn(err) end
     end)
 end
-createGui()
 
--- 【追加】ロビーにいて、自分がリーダーではない場合の自動テレポート
-if game.PlaceId == 139394229148664 then
-    if currentLeader ~= player.Name then
-        print("[SYSTEM] 非リーダーを検知。ゲームへテレポートします。")
-        task.wait(1)
-        TeleportService:Teleport(107066417917236, player)
-    else
-        print("[SYSTEM] あなたはリーダーです。待機します。")
-    end
-end
+-- --- [Pathfinding 自動歩行処理 (強化版)] ---
+local targetPlaceIds = { [95436277090085] = true, [107066417917236] = true, [79254735988889] = true }
 
--- Place 107066417917236 (ゲーム内) 監視
-if game.PlaceId == 107066417917236 then
-    print("[DEBUG] System Active (Lock-on Mode)")
+if targetPlaceIds[game.PlaceId] then
+    print("[DEBUG] System Active (Auto-Walk Mode)")
     local triggered = false
     local lockOn = false
-    local lastLog = 0
 
-    runService.Heartbeat:Connect(function()
-        if triggered then return end
-
-        local targetPlayer = Players:FindFirstChild(currentLeader)
-        if not targetPlayer then return end
-
-        if not lockOn then
-            local room = workspace:FindFirstChild("RoomGUI")
-            if room then
-                local room02 = room:FindFirstChild("ClassRoom02", true)
-                if room02 then
-                    local slot = room02:FindFirstChild("SlotCount", true)
-                    if slot and string.find(tostring(slot.Text), "0/6") then
-                        lockOn = true
-                        print("[LOCKON] 0/6を検知。固定開始。")
-                    end
-                end
-            end
+    -- デバッグ用：ルートの通り道を赤い球体で表示する
+    local function visualizeWaypoints(waypoints)
+        local folder = workspace:FindFirstChild("PathVisualizer") or Instance.new("Folder", workspace)
+        folder.Name = "PathVisualizer"
+        folder:ClearAllChildren()
+        for _, wp in ipairs(waypoints) do
+            local p = Instance.new("Part", folder)
+            p.Size = Vector3.new(0.6, 0.6, 0.6)
+            p.Position = wp.Position
+            p.Anchored = true
+            p.CanCollide = false
+            p.Material = Enum.Material.Neon
+            p.Color = Color3.fromRGB(255, 0, 0)
         end
+    end
 
-        if lockOn then
-            local targetPart = nil
-            local locFolder = workspace:FindFirstChild("Location")
-            if locFolder then
-                for _, v in pairs(locFolder:GetDescendants()) do
-                    if v.Name == "LocationCollisionPart" then
-                        local gv = v:FindFirstChild("GUIValue")
-                        if gv and tostring(gv.Value) == "ClassRoom02" then
-                            targetPart = v
-                            break
+    local function walkToTarget(targetPart)
+        local char = player.Character
+        local humanoid = char and char:FindFirstChildOfClass("Humanoid")
+        local hrp = char and char:FindFirstChild("HumanoidRootPart")
+        if not humanoid or not hrp then return end
+
+        -- AgentRadiusを3に広げて壁の角にぶつかりにくくする
+        local path = PathfindingService:CreatePath({
+            AgentRadius = 3,
+            AgentHeight = 5,
+            AgentCanJump = true
+        })
+        
+        path:ComputeAsync(hrp.Position, targetPart.Position)
+        
+        if path.Status == Enum.PathStatus.Success then
+            local waypoints = path:GetWaypoints()
+            visualizeWaypoints(waypoints) -- ルートの可視化
+
+            for i = 2, #waypoints do -- 1番目は現在地なので2番目から開始
+                if not scriptActive or isBlacklistPresent() then 
+                    humanoid:Move(Vector3.new(0,0,0))
+                    return 
+                end
+                
+                local wp = waypoints[i]
+                if wp.Action == Enum.PathWaypointAction.Jump then
+                    humanoid.Jump = true
+                end
+                
+                humanoid:MoveTo(wp.Position)
+                
+                -- MoveToFinishedの完了待ち（タイムアウト判定付き）
+                local completed = false
+                local connection
+                connection = humanoid.MoveToFinished:Connect(function(reached)
+                    completed = true
+                end)
+                
+                local startTime = tick()
+                while not completed do
+                    -- 経由地に十分近づいたら次のポイントへ（引っかかり防止）
+                    if (hrp.Position - wp.Position).Magnitude < 2.5 then break end
+                    -- 2秒以上同じ場所で立ち往生したらスタックとみなして強引に次のwpへ
+                    if tick() - startTime > 2.0 then 
+                        print("[DEBUG] スタック検知。次のウェイポイントに強制遷移します。")
+                        break 
+                    end
+                    task.wait(0.05)
+                end
+                if connection then connection:Disconnect() end
+            end
+        else
+            warn("[SYSTEM] パス計算失敗。直線的に向かいます。")
+            humanoid:MoveTo(targetPart.Position)
+        end
+    end
+
+    -- ループ監視
+    task.spawn(function()
+        while scriptActive do
+            task.wait(0.5)
+            
+            if triggered then break end
+
+            if isBlacklistPresent() then
+                print("[SYSTEM] ブラックリスト対象のプレイヤーを検知したため、動作を一時停止しています。")
+                local char = player.Character
+                local humanoid = char and char:FindFirstChildOfClass("Humanoid")
+                if humanoid then humanoid:Move(Vector3.new(0,0,0)) end
+                continue
+            end
+
+            if not lockOn then
+                local room = workspace:FindFirstChild("RoomGUI")
+                if room then
+                    local room02 = room:FindFirstChild("ClassRoom02", true)
+                    if room02 then
+                        local slot = room02:FindFirstChild("SlotCount", true)
+                        if slot and string.find(tostring(slot.Text), "0/6") then
+                            lockOn = true
+                            print("[LOCKON] 0/6を検知。接近を開始します。")
                         end
                     end
                 end
             end
 
-            if targetPart then
-                local myChar = player.Character
-                local myHRP = myChar and myChar:FindFirstChild("HumanoidRootPart")
-                if not myHRP then return end
+            if lockOn then
+                local targetPart = nil
+                local locFolder = workspace:FindFirstChild("Location")
+                if locFolder then
+                    for _, v in pairs(locFolder:GetDescendants()) do
+                        if v.Name == "LocationCollisionPart" then
+                            local gv = v:FindFirstChild("GUIValue")
+                            if gv and tostring(gv.Value) == "ClassRoom02" then
+                                targetPart = v
+                                break
+                            end
+                        end
+                    end
+                end
 
-                if currentLeader == player.Name then
-                    triggered = true 
-                    myHRP.CFrame = targetPart.CFrame
+                if targetPart then
+                    triggered = true
+                    walkToTarget(targetPart)
                     
-                    task.delay(0.5, function()
-                        local rf = ReplicatedStorage:FindFirstChild("ChangeBecomeAooniModeFunction", true)
-                        if rf and rf:IsA("RemoteFunction") then rf:InvokeServer() end
-                        local p = player:FindFirstChild("Profile")
-                        if p and p:FindFirstChild("Aodiamond") and p.Aodiamond.Value >= 10 then
-                            local re = ReplicatedStorage:FindFirstChild("ExchangeAction", true)
-                            if re then re:FireServer("AooniVirus") end
-                        end
-                    end)
-                else
-                    local leaderChar = targetPlayer.Character
-                    local leaderHRP = leaderChar and leaderChar:FindFirstChild("HumanoidRootPart")
-                    
-                    if leaderHRP then
-                        myHRP.CFrame = leaderHRP.CFrame
-                        local distToPart = (myHRP.Position - targetPart.Position).Magnitude
-                        if distToPart < 4 then 
-                            triggered = true 
-                        end
+                    -- 到着後、TouchInterestに触れる
+                    local ti = targetPart:FindFirstChildOfClass("TouchTransmitter")
+                    if ti then
+                        firetouchinterest(player.Character:FindFirstChild("HumanoidRootPart"), targetPart, 0)
+                        task.wait(0.1)
+                        firetouchinterest(player.Character:FindFirstChild("HumanoidRootPart"), targetPart, 1)
                     end
                 end
             end
@@ -143,10 +351,16 @@ if game.PlaceId == 107066417917236 then
     end)
 end
 
+-- --- [自動リロード仕込み] ---
 local url = "https://raw.githubusercontent.com/remothi/A/refs/heads/main/Auto"
 local qot = queue_on_teleport or (syn and syn.queue_on_teleport) or (fluxus and fluxus.queue_on_teleport)
 if qot then
+    RunService.Heartbeat:Connect(function()
+        if not scriptActive then return end
+    end)
     pcall(function()
-        qot('loadstring(game:HttpGet("'..url..'"))()')
+        if scriptActive then
+            qot('loadstring(game:HttpGet("'..url..'"))()')
+        end
     end)
 end
