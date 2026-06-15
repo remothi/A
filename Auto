@@ -4,10 +4,6 @@ if _G.ScriptRunning then
         game.Players.LocalPlayer.PlayerGui.CustomConfigGui:Destroy()
     end
 end
-if _G.ScriptPermanentlyStopped then 
-    print("[SYSTEM] スクリプトは完全に停止されています。起動しません。")
-    return 
-end
 _G.ScriptRunning = true
 
 local PathfindingService = game:GetService("PathfindingService")
@@ -59,6 +55,7 @@ mainFrame.BackgroundColor3 = Color3.fromRGB(35, 35, 35)
 mainFrame.Active = true
 mainFrame.Draggable = true
 
+-- モード切り替えボタン
 local modeBtn = Instance.new("TextButton", mainFrame)
 modeBtn.Size = UDim2.new(1, -20, 0, 35)
 modeBtn.Position = UDim2.new(0, 10, 0, 10)
@@ -73,6 +70,7 @@ modeBtn.MouseButton1Click:Connect(function()
     saveConfig()
 end)
 
+-- ブラックリスト入力
 local blInput = Instance.new("TextBox", mainFrame)
 blInput.Size = UDim2.new(0, 150, 0, 30)
 blInput.Position = UDim2.new(0, 10, 0, 55)
@@ -95,6 +93,7 @@ blRemBtn.Text = "Rem"
 blRemBtn.BackgroundColor3 = Color3.fromRGB(100, 40, 40)
 blRemBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
 
+-- ブラックリスト一覧表示
 local blListLabel = Instance.new("TextLabel", mainFrame)
 blListLabel.Size = UDim2.new(1, -20, 0, 80)
 blListLabel.Position = UDim2.new(0, 10, 0, 95)
@@ -135,21 +134,16 @@ blRemBtn.MouseButton1Click:Connect(function()
     blInput.Text = ""
 end)
 
-local stopBtn = Instance.new("TextButton", mainFrame)
-stopBtn.Size = UDim2.new(1, -20, 0, 40)
-stopBtn.Position = UDim2.new(0, 10, 0, 185)
-stopBtn.BackgroundColor3 = Color3.fromRGB(150, 0, 0)
-stopBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
-stopBtn.Text = "STOP (Disable Auto-load)"
+-- 【仕様変更】警告テキストラベル（旧停止ボタン枠）
+local noticeLabel = Instance.new("TextLabel", mainFrame)
+noticeLabel.Size = UDim2.new(1, -20, 0, 40)
+noticeLabel.Position = UDim2.new(0, 10, 0, 185)
+noticeLabel.BackgroundColor3 = Color3.fromRGB(80, 20, 20)
+noticeLabel.TextColor3 = Color3.fromRGB(255, 100, 100)
+noticeLabel.TextSize = 14
+noticeLabel.TextWrapped = true
+noticeLabel.Text = "終わらせるには一回抜けろ\n(サーバーを完全に退出すれば止まります)"
 
-local scriptActive = true
-stopBtn.MouseButton1Click:Connect(function()
-    scriptActive = false
-    _G.ScriptRunning = false
-    _G.ScriptPermanentlyStopped = true
-    if sg then sg:Destroy() end
-    print("[SYSTEM] 完全停止ボタンが押されました。次回以降自動テレポートも行いません。")
-end)
 
 -- --- [ブラックリストチェック関数] ---
 local function isBlacklistPresent()
@@ -163,24 +157,23 @@ local function isBlacklistPresent()
     return false
 end
 
+
 -- --- [自動テレポート処理] ---
 if game.PlaceId == 104592421039274 or game.PlaceId == 139394229148664 then
     task.wait(1)
-    if scriptActive then
-        local targetPlace = 95436277090085
-        if currentMode == "Pro" then targetPlace = 107066417917236
-        elseif currentMode == "Voice" then targetPlace = 79254735988889 end
-        
-        print("[SYSTEM] ロビーを検知。モードに応じた場所に移動します: " .. currentMode)
-        TeleportService:Teleport(targetPlace, player)
-    end
+    local targetPlace = 95436277090085
+    if currentMode == "Pro" then targetPlace = 107066417917236
+    elseif currentMode == "Voice" then targetPlace = 79254735988889 end
+    
+    print("[SYSTEM] ロビーを検知。モードに応じた場所に移動します: " .. currentMode)
+    TeleportService:Teleport(targetPlace, player)
 end
+
 
 -- --- [ブルームーン遭遇通知処理] ---
 if game.PlaceId == 80748316549650 then
     task.spawn(function()
         task.wait(5)
-        if not scriptActive then return end
         
         local myName = player.Name
         local others = {}
@@ -208,7 +201,8 @@ if game.PlaceId == 80748316549650 then
     end)
 end
 
--- --- [Pathfinding 自動歩行処理 (強化版)] ---
+
+-- --- [Pathfinding 自動歩行処理] ---
 local targetPlaceIds = { [95436277090085] = true, [107066417917236] = true, [79254735988889] = true }
 
 if targetPlaceIds[game.PlaceId] then
@@ -216,7 +210,6 @@ if targetPlaceIds[game.PlaceId] then
     local triggered = false
     local lockOn = false
 
-    -- デバッグ用：ルートの通り道を赤い球体で表示する
     local function visualizeWaypoints(waypoints)
         local folder = workspace:FindFirstChild("PathVisualizer") or Instance.new("Folder", workspace)
         folder.Name = "PathVisualizer"
@@ -238,7 +231,6 @@ if targetPlaceIds[game.PlaceId] then
         local hrp = char and char:FindFirstChild("HumanoidRootPart")
         if not humanoid or not hrp then return end
 
-        -- AgentRadiusを3に広げて壁の角にぶつかりにくくする
         local path = PathfindingService:CreatePath({
             AgentRadius = 3,
             AgentHeight = 5,
@@ -249,10 +241,10 @@ if targetPlaceIds[game.PlaceId] then
         
         if path.Status == Enum.PathStatus.Success then
             local waypoints = path:GetWaypoints()
-            visualizeWaypoints(waypoints) -- ルートの可視化
+            visualizeWaypoints(waypoints)
 
-            for i = 2, #waypoints do -- 1番目は現在地なので2番目から開始
-                if not scriptActive or isBlacklistPresent() then 
+            for i = 2, #waypoints do
+                if isBlacklistPresent() then 
                     humanoid:Move(Vector3.new(0,0,0))
                     return 
                 end
@@ -264,7 +256,6 @@ if targetPlaceIds[game.PlaceId] then
                 
                 humanoid:MoveTo(wp.Position)
                 
-                -- MoveToFinishedの完了待ち（タイムアウト判定付き）
                 local completed = false
                 local connection
                 connection = humanoid.MoveToFinished:Connect(function(reached)
@@ -273,11 +264,8 @@ if targetPlaceIds[game.PlaceId] then
                 
                 local startTime = tick()
                 while not completed do
-                    -- 経由地に十分近づいたら次のポイントへ（引っかかり防止）
                     if (hrp.Position - wp.Position).Magnitude < 2.5 then break end
-                    -- 2秒以上同じ場所で立ち往生したらスタックとみなして強引に次のwpへ
                     if tick() - startTime > 2.0 then 
-                        print("[DEBUG] スタック検知。次のウェイポイントに強制遷移します。")
                         break 
                     end
                     task.wait(0.05)
@@ -292,7 +280,7 @@ if targetPlaceIds[game.PlaceId] then
 
     -- ループ監視
     task.spawn(function()
-        while scriptActive do
+        while true do
             task.wait(0.5)
             
             if triggered then break end
@@ -338,7 +326,6 @@ if targetPlaceIds[game.PlaceId] then
                     triggered = true
                     walkToTarget(targetPart)
                     
-                    -- 到着後、TouchInterestに触れる
                     local ti = targetPart:FindFirstChildOfClass("TouchTransmitter")
                     if ti then
                         firetouchinterest(player.Character:FindFirstChild("HumanoidRootPart"), targetPart, 0)
@@ -355,12 +342,7 @@ end
 local url = "https://raw.githubusercontent.com/remothi/A/refs/heads/main/Auto"
 local qot = queue_on_teleport or (syn and syn.queue_on_teleport) or (fluxus and fluxus.queue_on_teleport)
 if qot then
-    RunService.Heartbeat:Connect(function()
-        if not scriptActive then return end
-    end)
     pcall(function()
-        if scriptActive then
-            qot('loadstring(game:HttpGet("'..url..'"))()')
-        end
+        qot('loadstring(game:HttpGet("'..url..'"))()')
     end)
 end
