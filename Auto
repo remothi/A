@@ -134,7 +134,7 @@ blRemBtn.MouseButton1Click:Connect(function()
     blInput.Text = ""
 end)
 
--- 【仕様変更】警告テキストラベル（旧停止ボタン枠）
+-- 警告テキストラベル
 local noticeLabel = Instance.new("TextLabel", mainFrame)
 noticeLabel.Size = UDim2.new(1, -20, 0, 40)
 noticeLabel.Position = UDim2.new(0, 10, 0, 185)
@@ -202,7 +202,7 @@ if game.PlaceId == 80748316549650 then
 end
 
 
--- --- [Pathfinding 自動歩行処理] ---
+-- --- [Pathfinding 自動歩行処理 (ラグ対策・先行発火版)] ---
 local targetPlaceIds = { [95436277090085] = true, [107066417917236] = true, [79254735988889] = true }
 
 if targetPlaceIds[game.PlaceId] then
@@ -231,8 +231,9 @@ if targetPlaceIds[game.PlaceId] then
         local hrp = char and char:FindFirstChild("HumanoidRootPart")
         if not humanoid or not hrp then return end
 
+        -- 負荷軽減：AgentRadiusを調整した単発計算
         local path = PathfindingService:CreatePath({
-            AgentRadius = 3,
+            AgentRadius = 2.5,
             AgentHeight = 5,
             AgentCanJump = true
         })
@@ -258,17 +259,17 @@ if targetPlaceIds[game.PlaceId] then
                 
                 local completed = false
                 local connection
-                connection = humanoid.MoveToFinished:Connect(function(reached)
+                connection = humanoid.MoveToFinished:Connect(function()
                     completed = true
                 end)
                 
                 local startTime = tick()
                 while not completed do
                     if (hrp.Position - wp.Position).Magnitude < 2.5 then break end
-                    if tick() - startTime > 2.0 then 
+                    if tick() - startTime > 1.5 then -- ラグ防止にタイムアウトを少し短縮
                         break 
                     end
-                    task.wait(0.05)
+                    task.wait(0.05) -- 高速同期
                 end
                 if connection then connection:Disconnect() end
             end
@@ -286,7 +287,6 @@ if targetPlaceIds[game.PlaceId] then
             if triggered then break end
 
             if isBlacklistPresent() then
-                print("[SYSTEM] ブラックリスト対象のプレイヤーを検知したため、動作を一時停止しています。")
                 local char = player.Character
                 local humanoid = char and char:FindFirstChildOfClass("Humanoid")
                 if humanoid then humanoid:Move(Vector3.new(0,0,0)) end
@@ -301,7 +301,7 @@ if targetPlaceIds[game.PlaceId] then
                         local slot = room02:FindFirstChild("SlotCount", true)
                         if slot and string.find(tostring(slot.Text), "0/6") then
                             lockOn = true
-                            print("[LOCKON] 0/6を検知。接近を開始します。")
+                            print("[LOCKON] 0/6を検知。")
                         end
                     end
                 end
@@ -324,14 +324,18 @@ if targetPlaceIds[game.PlaceId] then
 
                 if targetPart then
                     triggered = true
-                    walkToTarget(targetPart)
                     
+                    -- 【仕様変更】歩き始める前に最優先でTouchInterestを発火（先行判定）
                     local ti = targetPart:FindFirstChildOfClass("TouchTransmitter")
                     if ti then
+                        print("[SYSTEM] 歩行開始前にTouchInterestを先行発火します。")
                         firetouchinterest(player.Character:FindFirstChild("HumanoidRootPart"), targetPart, 0)
-                        task.wait(0.1)
+                        task.wait(0.05)
                         firetouchinterest(player.Character:FindFirstChild("HumanoidRootPart"), targetPart, 1)
                     end
+                    
+                    -- その後、キャラクターを目的地まで実際に歩かせる
+                    walkToTarget(targetPart)
                 end
             end
         end
