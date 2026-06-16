@@ -1,7 +1,7 @@
 -- 【重複防止】
 if _G.ScriptRunning then
     if game.Players.LocalPlayer.PlayerGui:FindFirstChild("CustomConfigGui") then
-        game.Players.LocalPlayer.PlayerGui.CustomConfigGui:Destroy()
+        game.Players.LocalPla.Play.CustomConfigGui:Destroy()
     end
 end
 _G.ScriptRunning = true
