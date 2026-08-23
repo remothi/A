@@ -3963,3 +3963,206 @@ UserInputService.InputChanged:Connect(function(input)
 
 end)
 end
+
+do
+-- ========================================================
+-- VS Basketball Auto & Button Shoot GUI (gameType Check Fix)
+-- ========================================================
+
+local Players = game:GetService("Players")
+local CollectionService = game:GetService("CollectionService")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local CoreGui = game:GetService("CoreGui")
+local LocalPlayer = Players.LocalPlayer
+
+-- 初期設定値（最大チャージ時間）
+local maxChargeTime = 1.7
+local autoShootConnection = nil
+
+-- 距離に応じた最適なパワー割合（0.0～1.0）を計算する関数（遠距離補正版）
+local function calculatePerfectRatio(distance)
+    if distance <= 0 then
+        return 0.3
+    end
+
+    local v35 = distance / 30
+    local baseRatio = math.log(v35) / 1.2039728043259361 * 0.4 + 0.4
+    local distanceBoost = (distance / 45) * 0.15
+    local finalRatio = baseRatio + distanceBoost
+
+    return math.clamp(finalRatio, 0.3, 1.0)
+end
+
+-- 最寄りのゴールを取得
+local function getNearestGoalPosition(hrpPos)
+    local nearestPos = nil
+    local minDistance = math.huge
+
+    for _, goalPart in ipairs(CollectionService:GetTagged("GoalZone")) do
+        if goalPart:IsA("BasePart") then
+            local dist = (goalPart.Position - hrpPos).Magnitude
+            if dist < minDistance then
+                minDistance = dist
+                nearestPos = goalPart.Position
+            end
+        end
+    end
+
+    return nearestPos, minDistance
+end
+
+-- シュート実行関数
+local function executeShoot()
+    local character = LocalPlayer.Character
+    if not character then return end
+
+    local hrp = character:FindFirstChild("HumanoidRootPart")
+    local shootAction = character:FindFirstChild("ShootAction")
+
+    if hrp and shootAction then
+        local goalPos, distance = getNearestGoalPosition(hrp.Position)
+        if not goalPos then return end
+
+        local targetRatio = calculatePerfectRatio(distance)
+        local holdTime = targetRatio * maxChargeTime
+
+        shootAction:FireServer("startCharge")
+        task.wait(holdTime)
+        shootAction:FireServer("shoot", targetRatio * 1.25)
+
+        print(string.format("[AutoShoot] Dist: %.2f | HoldTime: %.2f sec | Ratio: %.2f", distance, holdTime, targetRatio))
+    end
+end
+
+-- ========================================================
+-- GUI ＆ 自動処理の構築・削除管理
+-- ========================================================
+
+local function removeGUI()
+    if CoreGui:FindFirstChild("AutoShootGUI") then
+        CoreGui.AutoShootGUI:Destroy()
+    end
+    if autoShootConnection then
+        autoShootConnection = nil
+    end
+end
+
+local function setupGUI()
+    removeGUI()
+
+    -- GUI作成
+    local screenGui = Instance.new("ScreenGui")
+    screenGui.Name = "AutoShootGUI"
+    screenGui.ResetOnSpawn = false
+    screenGui.Parent = CoreGui
+
+    local frame = Instance.new("Frame")
+    frame.Name = "MainFrame"
+    frame.Size = UDim2.new(0, 180, 0, 110)
+    frame.Position = UDim2.new(0.5, -90, 0.2, 0)
+    frame.BackgroundColor3 = Color3.fromRGB(30, 30, 35)
+    frame.BorderSizePixel = 0
+    frame.Active = true
+    frame.Draggable = true
+    frame.Parent = screenGui
+
+    local corner = Instance.new("UICorner")
+    corner.CornerRadius = UDim.new(0, 8)
+    corner.Parent = frame
+
+    local title = Instance.new("TextLabel")
+    title.Size = UDim2.new(1, 0, 0, 25)
+    title.BackgroundTransparency = 1
+    title.Text = "Auto Shoot Settings"
+    title.TextColor3 = Color3.fromRGB(255, 255, 255)
+    title.TextSize = 12
+    title.Font = Enum.Font.SourceSansBold
+    title.Parent = frame
+
+    local textBox = Instance.new("TextBox")
+    textBox.Name = "ChargeTimeBox"
+    textBox.Size = UDim2.new(0.9, 0, 0, 28)
+    textBox.Position = UDim2.new(0.05, 0, 0.28, 0)
+    textBox.BackgroundColor3 = Color3.fromRGB(50, 50, 60)
+    textBox.TextColor3 = Color3.fromRGB(255, 255, 255)
+    textBox.Text = tostring(maxChargeTime)
+    textBox.PlaceholderText = "Max Charge Time (sec)"
+    textBox.TextSize = 13
+    textBox.Font = Enum.Font.SourceSans
+    textBox.ClearTextOnFocus = false
+    textBox.Parent = frame
+
+    local boxCorner = Instance.new("UICorner")
+    boxCorner.CornerRadius = UDim.new(0, 5)
+    boxCorner.Parent = textBox
+
+    textBox:GetPropertyChangedSignal("Text"):Connect(function()
+        local num = tonumber(textBox.Text)
+        if num then
+            maxChargeTime = num
+        end
+    end)
+
+    local shootBtn = Instance.new("TextButton")
+    shootBtn.Name = "ShootButton"
+    shootBtn.Size = UDim2.new(0.9, 0, 0, 32)
+    shootBtn.Position = UDim2.new(0.05, 0, 0.62, 0)
+    shootBtn.BackgroundColor3 = Color3.fromRGB(0, 170, 255)
+    shootBtn.Text = "SHOOT"
+    shootBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+    shootBtn.TextSize = 14
+    shootBtn.Font = Enum.Font.SourceSansBold
+    shootBtn.Parent = frame
+
+    local btnCorner = Instance.new("UICorner")
+    btnCorner.CornerRadius = UDim.new(0, 5)
+    btnCorner.Parent = shootBtn
+
+    shootBtn.MouseButton1Click:Connect(function()
+        task.spawn(executeShoot)
+    end)
+
+    -- 自動シュートのループ処理起動
+    local isRunning = true
+    autoShootConnection = isRunning
+
+    task.spawn(function()
+        local wasHolding = false
+        while isRunning and autoShootConnection == isRunning do
+            local character = LocalPlayer.Character
+            if character then
+                local isHolding = character:GetAttribute("IsHoldingBall") == true
+                if isHolding and not wasHolding then
+                    task.wait(0.05)
+                    executeShoot()
+                end
+                wasHolding = isHolding
+            else
+                wasHolding = false
+            end
+            task.wait(0.05)
+        end
+    end)
+end
+
+-- ========================================================
+-- gameType の判定・監視処理
+-- ========================================================
+
+local function checkGameType()
+    local currentGameType = ReplicatedStorage:GetAttribute("gameType")
+    if currentGameType == "VSBasketball" then
+        if not CoreGui:FindFirstChild("AutoShootGUI") then
+            setupGUI()
+        end
+    else
+        removeGUI()
+    end
+end
+
+-- 初期判定
+checkGameType()
+
+-- gameType の変更を常時監視
+ReplicatedStorage:GetAttributeChangedSignal("gameType"):Connect(checkGameType)
+end
