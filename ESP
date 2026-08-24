@@ -1049,7 +1049,7 @@ local Camera = game.Workspace.CurrentCamera
 
 local player = Players.LocalPlayer
 
--- --- 共通ユーティリティ関数（既存ロジック用） ---
+-- --- 共通ユーティリティ関数 ---
 
 local function getHRP()
     local char = player.Character
@@ -1101,7 +1101,7 @@ local frame = Instance.new("Frame")
 frame.Name = "MainFrame"
 frame.AnchorPoint = Vector2.new(0.5, 0.5)
 frame.Position = UDim2.new(0.5, 0, 0.5, 0)
-frame.Size = UDim2.new(0, 220, 0, 230) -- コンパクトサイズ
+frame.Size = UDim2.new(0, 220, 0, 230)
 frame.BackgroundColor3 = Color3.fromRGB(35, 35, 35)
 frame.BorderSizePixel = 0
 frame.Active = true
@@ -1198,7 +1198,7 @@ local sweepBtn = makeBtn("SweepingRoom", "Sweeping", 165)
 -- --- パズル解決ロジック ---
 
 local godModeInProgress = false
-local usedLockers = {} -- 使用済みロッカーの記録用テーブル
+local usedLockers = {}
 
 local function disableHidingGui()
     local playerGui = Players.LocalPlayer:FindFirstChild("PlayerGui")
@@ -1224,10 +1224,8 @@ local function processGodMode()
     local hrp = getHRP()
     if not School or not hrp then godModeInProgress = false return end
 
-    -- 1. 開始前の位置を記憶
     local originalCFrame = hrp.CFrame
 
-    -- 全ロッカーを取得してフィルタリング
     local availableLockers = {}
     local unusedLockers = {}
 
@@ -1244,29 +1242,24 @@ local function processGodMode()
         end
     end
 
-    -- 未使用のものがなければ使用履歴をリセットして全体から選ぶ
     local targetList = #unusedLockers > 0 and unusedLockers or availableLockers
     if #unusedLockers == 0 then
         usedLockers = {}
     end
 
     if #targetList > 0 then
-        -- ランダムにロッカーを選択（重複を抑止）
         local selected = targetList[math.random(1, #targetList)]
         local lockerContainer = selected.container
         local mesh = selected.mesh
 
-        usedLockers[lockerContainer] = true -- 使用済みに登録
+        usedLockers[lockerContainer] = true
 
-        -- 2. ロッカー前（メッシュ位置）へ移動して入る
         hrp.CFrame = CFrame.new(mesh.Position)
         task.wait(0.5) 
         firePrompt(findPromptRecursive(mesh))
         
-        -- 3. 入る動作が安定するまで待機
         task.wait(2.0) 
 
-        -- 4. ロッカーから出る処理
         local outside = lockerContainer:FindFirstChild("OutsidePromptPart") 
         if outside then
             local outsidePrompt = outside:FindFirstChild("ProximityPrompt") or outside:FindFirstChildWhichIsA("ProximityPrompt")
@@ -1276,13 +1269,10 @@ local function processGodMode()
             disableHidingGui()
         end
 
-        -- 5. 出るアニメーション・動作が確実に完了するまで待機
         task.wait(2.0)
 
-        -- 6. 元の場所へ戻る
         hrp.CFrame = originalCFrame
 
-        -- 7. 戻った後の同期時間
         task.wait(1.0)
         godModeInProgress = false
         return 
@@ -1307,34 +1297,33 @@ local function processRadioRoom()
                         local prompt = findPromptRecursive(radio)
                         if not prompt then return end
 
-                        -- 高速探索アルゴリズム
-                        local step = 0.2
-                        local minStep = 0.005
+                        local step = 0.25
                         local lastVolume = volume.Value
 
-                        -- 1. 音量が 0.90（90%）に達するまで高速調整
-                        while prompt.Parent and volume.Value < 0.90 do
-                            local cv = volume.Value
-
-                            if cv <= lastVolume and cv < 0.85 then
-                                step = -step * 0.5
-                                if math.abs(step) < minStep then
-                                    step = (step < 0 and -minStep or minStep)
-                                end
-                            end
-
-                            local nextVal = math.clamp(target.Value + step, 0, 1)
-                            target.Value = nextVal
-                            workEvent:FireServer(radio, nextVal)
-
-                            lastVolume = cv
-                            task.wait(0.1)
-                        end
-
-                        -- 2. 90%以上到達後、プロンプトが消える（ラジオ解決）までリモートを送信し続ける
+                        -- プロンプトが存在（＝ラジオ未解決）の間はループを継続
                         while prompt and prompt.Parent do
-                            workEvent:FireServer(radio, target.Value)
-                            task.wait(0.15)
+                            if volume.Value < 0.90 then
+                                -- 【探索フェーズ】90%未満なら微調整して持ち上げる
+                                local cv = volume.Value
+
+                                if cv < lastVolume then
+                                    step = -step * 0.5
+                                end
+
+                                local nextVal = math.clamp(target.Value + step, 0, 1)
+                                target.Value = nextVal
+                                workEvent:FireServer(radio, nextVal)
+
+                                lastVolume = cv
+                                task.wait(0.08)
+                            else
+                                -- 【維持フェーズ】90%以上なら数値を固定してリモート送信
+                                workEvent:FireServer(radio, target.Value)
+                                task.wait(0.1)
+                                
+                                -- 次のフレームで万が一90%を切っていた場合、即座に上の if に戻って再探索を開始
+                                lastVolume = volume.Value
+                            end
                         end
                     end)
                 end
@@ -1458,12 +1447,12 @@ RunService.RenderStepped:Connect(function()
     if not folded then
         local fh = frame.AbsoluteSize.Y
         for _, b in ipairs(buttons) do
-            -- 元スクリプトの比率（横0.55、縦0.12）を適用
             b.Size = UDim2.new(0.55, 0, 0, fh * 0.12)
         end
     end
 end)
 end
+
 
 do
 
