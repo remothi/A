@@ -1288,40 +1288,49 @@ local function processRadioRoom()
     for _, room in ipairs(School:GetChildren()) do
         if room.Name:match("RadioRoom") then
             task.spawn(function()
-                local radiosObj = room:FindFirstChild("PuzzleObjects") and room.PuzzleObjects:FindFirstChild("Radios")
-                if not radiosObj then return end
-                local radios = radiosObj:GetChildren()
+                local radios = room.PuzzleObjects.Radios:GetChildren()
                 local workEvent = room:WaitForChild("PuzzleWork")
-
                 for _, radio in ipairs(radios) do
                     task.spawn(function()
-                        -- 読み込み遅延対策：プロンプトが発生するまで最大2秒（0.1秒毎）待つ
-                        local prompt = nil
-                        for _ = 1, 20 do
-                            prompt = findPromptRecursive(radio)
-                            if prompt then break end
-                            task.wait(0.1)
+                        local target = radio:WaitForChild("Target")
+                        local volume = radio:WaitForChild("Volume")
+                        local prompt = findPromptRecursive(radio)
+                        if not prompt then return end
+
+                        -- 1. 最初に少しだけ動かして0固定を回避
+                        if target.Value == 0 then
+                            target.Value = 0.05
+                            workEvent:FireServer(radio, 0.05)
+                            task.wait(0.05)
                         end
 
-                        -- プロンプトが見つからなくても Target/Volume があれば強制続行
-                        local target = radio:FindFirstChild("Target") or radio:WaitForChild("Target", 2)
-                        local volume = radio:FindFirstChild("Volume") or radio:WaitForChild("Volume", 2)
-                        
-                        if not target or not volume then return end
-
-                        -- 高速探索パラメータ
-                        local step = 0.25
+                        local step = 0.2
                         local lastVolume = volume.Value
 
-                        -- 1. 音量が 0.90 (90%) に達するまで高速アプローチ
-                        while (not prompt or prompt.Parent) and volume.Value < 0.90 do
+                        -- 2. 音量が 0.90 (90%) に達するまで探索
+                        while prompt.Parent and volume.Value < 0.90 do
                             local cv = volume.Value
 
-                            if cv < lastVolume then
+                            -- 音量が上がっていない場合の反転・スタック回避
+                            if cv <= lastVolume then
                                 step = -step * 0.5
+                                -- ステップが小さくなりすぎたら再加速
+                                if math.abs(step) < 0.02 then
+                                    step = (step < 0) and -0.15 or 0.15
+                                end
                             end
 
-                            local nextVal = math.clamp(target.Value + step, 0, 1)
+                            local nextVal = target.Value + step
+
+                            -- 0や1の端に張り付いた場合の脱出（跳ね返し）
+                            if nextVal <= 0 then
+                                nextVal = 0.3
+                                step = 0.15
+                            elseif nextVal >= 1 then
+                                nextVal = 0.7
+                                step = -0.15
+                            end
+
                             target.Value = nextVal
                             workEvent:FireServer(radio, nextVal)
 
@@ -1329,9 +1338,8 @@ local function processRadioRoom()
                             task.wait(0.08)
                         end
 
-                        -- 2. 90%到達後、ラジオが解除（プロンプト消滅）されるまで送信を継続
-                        -- プロンプトがない場合は音量がほぼ1になるまで送信
-                        while (prompt and prompt.Parent) or (not prompt and volume.Value < 0.98) do
+                        -- 3. 90%到達後、ラジオが消えるまで送信維持
+                        while prompt and prompt.Parent do
                             workEvent:FireServer(radio, target.Value)
                             task.wait(0.1)
                         end
@@ -1341,6 +1349,7 @@ local function processRadioRoom()
         end
     end
 end
+
 radioBtn.MouseButton1Click:Connect(processRadioRoom)
 
 local function processStrongbox()
