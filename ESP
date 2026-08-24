@@ -4166,3 +4166,259 @@ checkGameType()
 -- gameType の変更を常時監視
 ReplicatedStorage:GetAttributeChangedSignal("gameType"):Connect(checkGameType)
 end
+
+do
+local Players = game:GetService("Players")
+local RunService = game:GetService("RunService")
+local UserInputService = game:GetService("UserInputService")
+
+local LocalPlayer = Players.LocalPlayer
+local Camera = workspace.CurrentCamera
+
+-- UI & 状態変数
+local enabled = false
+local moveVector = Vector3.new()
+local lookVector = Vector2.new()
+local speed = 1
+local targetPosition = Vector3.new()
+
+-- 入力追跡用
+local activePressed = {}
+local cameraTouchInput = nil
+local lastTouchPos = nil
+
+-- ScreenGui 作成
+local screenGui = Instance.new("ScreenGui")
+screenGui.Name = "MobileFreecamGui"
+screenGui.ResetOnSpawn = false
+screenGui.Parent = LocalPlayer:WaitForChild("PlayerGui")
+
+-- メイン切り替えボタン (丸形)
+local toggleBtn = Instance.new("TextButton")
+toggleBtn.Name = "ToggleBtn"
+toggleBtn.Size = UDim2.new(0, 50, 0, 50)
+toggleBtn.Position = UDim2.new(0.85, 0, 0.1, 0)
+toggleBtn.BackgroundColor3 = Color3.fromRGB(30, 30, 30)
+toggleBtn.BackgroundTransparency = 0.2
+toggleBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+toggleBtn.Text = "CAM"
+toggleBtn.Font = Enum.Font.SourceSansBold
+toggleBtn.TextSize = 14
+toggleBtn.Parent = screenGui
+
+local toggleCorner = Instance.new("UICorner")
+toggleCorner.CornerRadius = UDim.new(1, 0) -- 完全な丸
+toggleCorner.Parent = toggleBtn
+
+local toggleStroke = Instance.new("UIStroke")
+toggleStroke.Color = Color3.fromRGB(255, 255, 255)
+toggleStroke.Transparency = 0.5
+toggleStroke.Thickness = 2
+toggleStroke.Parent = toggleBtn
+
+-- トグルボタンのドラッグ機能（ドラッグ時の誤判定防止付き）
+local dragging = false
+local dragInput = nil
+local dragStart = nil
+local startPos = nil
+local isMoved = false
+
+toggleBtn.InputBegan:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.Touch or input.UserInputType == Enum.UserInputType.MouseButton1 then
+        dragging = true
+        isMoved = false
+        dragStart = input.Position
+        startPos = toggleBtn.Position
+
+        input.Changed:Connect(function()
+            if input.UserInputState == Enum.UserInputState.End then
+                dragging = false
+            end
+        end)
+    end
+end)
+
+toggleBtn.InputChanged:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.Touch or input.UserInputType == Enum.UserInputType.MouseMovement then
+        dragInput = input
+    end
+end)
+
+UserInputService.InputChanged:Connect(function(input)
+    if input == dragInput and dragging then
+        local delta = input.Position - dragStart
+        if delta.Magnitude > 5 then -- 5ピクセル以上動いたらドラッグと判定
+            isMoved = true
+            toggleBtn.Position = UDim2.new(
+                startPos.X.Scale,
+                startPos.X.Offset + delta.X,
+                startPos.Y.Scale,
+                startPos.Y.Offset + delta.Y
+            )
+        end
+    end
+end)
+
+-- 操作用フレーム（ON時のみ表示）
+local controlFrame = Instance.new("Frame")
+controlFrame.Name = "ControlFrame"
+controlFrame.Size = UDim2.new(1, 0, 1, 0)
+controlFrame.BackgroundTransparency = 1
+controlFrame.Visible = false
+controlFrame.Parent = screenGui
+
+-- ボタン作成関数
+local function createButton(name, text, pos, size)
+    local btn = Instance.new("TextButton")
+    btn.Name = name
+    btn.Text = text
+    btn.Position = pos
+    btn.Size = size
+    btn.BackgroundColor3 = Color3.fromRGB(0, 0, 0)
+    btn.BackgroundTransparency = 0.4
+    btn.TextColor3 = Color3.fromRGB(255, 255, 255)
+    btn.Font = Enum.Font.SourceSansBold
+    btn.TextSize = 18
+    btn.Parent = controlFrame
+
+    local corner = Instance.new("UICorner")
+    corner.CornerRadius = UDim.new(0, 10)
+    corner.Parent = btn
+
+    local stroke = Instance.new("UIStroke")
+    stroke.Color = Color3.fromRGB(255, 255, 255)
+    stroke.Transparency = 0.8
+    stroke.Thickness = 1
+    stroke.Parent = btn
+
+    return btn
+end
+
+-- 配置調整
+local padCenterX, padCenterY = 0.18, 0.75
+local btnSize = 44
+
+local btnUp = createButton("BtnUp", "▲", UDim2.new(padCenterX, -btnSize/2, padCenterY, -btnSize*1.1 - btnSize/2), UDim2.new(0, btnSize, 0, btnSize))
+local btnDown = createButton("BtnDown", "▼", UDim2.new(padCenterX, -btnSize/2, padCenterY, btnSize*1.1 - btnSize/2), UDim2.new(0, btnSize, 0, btnSize))
+local btnLeft = createButton("BtnLeft", "◄", UDim2.new(padCenterX, -btnSize*1.1 - btnSize/2, padCenterY, -btnSize/2), UDim2.new(0, btnSize, 0, btnSize))
+local btnRight = createButton("BtnRight", "►", UDim2.new(padCenterX, btnSize*1.1 - btnSize/2, padCenterY, -btnSize/2), UDim2.new(0, btnSize, 0, btnSize))
+
+local btnAscend = createButton("BtnAscend", "上昇", UDim2.new(0.85, -25, 0.65, -30), UDim2.new(0, 55, 0, 45))
+local btnDescend = createButton("BtnDescend", "下降", UDim2.new(0.85, -25, 0.65, 25), UDim2.new(0, 55, 0, 45))
+
+-- 移動方向マッピング
+local directions = {
+    [btnUp] = Vector3.new(0, 0, -1),
+    [btnDown] = Vector3.new(0, 0, 1),
+    [btnLeft] = Vector3.new(-1, 0, 0),
+    [btnRight] = Vector3.new(1, 0, 0),
+    [btnAscend] = Vector3.new(0, 1, 0),
+    [btnDescend] = Vector3.new(0, -1, 0)
+}
+
+local function updateMoveVector()
+    local vec = Vector3.new()
+    for btn, dir in pairs(directions) do
+        if activePressed[btn] then
+            vec = vec + dir
+        end
+    end
+    moveVector = vec
+end
+
+-- ボタンの外からのスワイプ進入を無視する判定（TouchStartedを利用）
+for btn, _ in pairs(directions) do
+    btn.InputBegan:Connect(function(input)
+        -- タッチがボタンの範囲内で直接開始された場合のみ受け付ける
+        if input.UserInputType == Enum.UserInputType.Touch or input.UserInputType == Enum.UserInputType.MouseButton1 then
+            if input.UserInputState == Enum.UserInputState.Begin then
+                activePressed[btn] = true
+                updateMoveVector()
+            end
+        end
+    end)
+    
+    btn.InputEnded:Connect(function(input)
+        if input.UserInputType == Enum.UserInputType.Touch or input.UserInputType == Enum.UserInputType.MouseButton1 then
+            activePressed[btn] = nil
+            updateMoveVector()
+        end
+    end)
+end
+
+-- スワイプ視点移動（1本の指定タッチのみ追跡）
+UserInputService.TouchStarted:Connect(function(touch, gameProcessed)
+    if not enabled or gameProcessed then return end
+    
+    if not cameraTouchInput and touch.Position.X > workspace.CurrentCamera.ViewportSize.X * 0.35 then
+        cameraTouchInput = touch
+        lastTouchPos = touch.Position
+    end
+end)
+
+UserInputService.TouchMoved:Connect(function(touch, gameProcessed)
+    if not enabled or touch ~= cameraTouchInput or not lastTouchPos then return end
+    
+    local delta = touch.Position - lastTouchPos
+    lastTouchPos = touch.Position
+    
+    lookVector = lookVector - Vector2.new(delta.Y, delta.X) * 0.005
+    lookVector = Vector2.new(math.clamp(lookVector.X, -math.rad(80), math.rad(80)), lookVector.Y)
+end)
+
+UserInputService.TouchEnded:Connect(function(touch)
+    if touch == cameraTouchInput then
+        cameraTouchInput = nil
+        lastTouchPos = nil
+    end
+end)
+
+-- カメラ完全乗っ取り処理
+local function updateCamera()
+    if not enabled then return end
+    
+    Camera.CameraType = Enum.CameraType.Scriptable
+    Camera.CameraSubject = nil
+    
+    local currentRotation = CFrame.Angles(0, lookVector.Y, 0) * CFrame.Angles(lookVector.X, 0, 0)
+    local relativeMove = currentRotation:VectorToWorldSpace(moveVector)
+    targetPosition = targetPosition + (relativeMove * speed)
+    
+    local newCFrame = CFrame.new(targetPosition) * currentRotation
+    Camera.CFrame = newCFrame
+    Camera.Focus = newCFrame * CFrame.new(0, 0, -5)
+end
+
+RunService:BindToRenderStep("MobileFreecamOverride", Enum.RenderPriority.Camera.Value + 100, updateCamera)
+
+-- ON/OFF切替処理（ドラッグされた場合は発動しない）
+toggleBtn.MouseButton1Click:Connect(function()
+    if isMoved then return end -- ドラッグ移動した場合はトグルしない
+    
+    enabled = not enabled
+    controlFrame.Visible = enabled
+    
+    activePressed = {}
+    moveVector = Vector3.new()
+    cameraTouchInput = nil
+    lastTouchPos = nil
+    
+    if enabled then
+        toggleBtn.Text = "ON"
+        toggleBtn.BackgroundColor3 = Color3.fromRGB(0, 180, 80)
+        
+        targetPosition = Camera.CFrame.Position
+        local rx, ry, _ = Camera.CFrame:ToOrientation()
+        lookVector = Vector2.new(rx, ry)
+    else
+        toggleBtn.Text = "CAM"
+        toggleBtn.BackgroundColor3 = Color3.fromRGB(30, 30, 30)
+        
+        Camera.CameraType = Enum.CameraType.Custom
+        if LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("Humanoid") then
+            Camera.CameraSubject = LocalPlayer.Character.Humanoid
+        end
+    end
+end)
+
+end
