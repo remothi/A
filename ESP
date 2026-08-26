@@ -3849,9 +3849,8 @@ UserInputService.InputChanged:Connect(function(input)
 end)
 end
 
-do
--- ========================================================
--- VS Basketball Auto Shoot GUI (Toggle & Game Check Fix)
+do-- ========================================================
+-- VS Basketball Auto Shoot GUI (Middle Distance & Default OFF Fix)
 -- ========================================================
 
 local Players = game:GetService("Players")
@@ -3862,20 +3861,25 @@ local LocalPlayer = Players.LocalPlayer
 
 -- 固定値設定（1.7秒）
 local MAX_CHARGE_TIME = 1.7
-local isAutoShootEnabled = true -- 初期状態はON
+local isAutoShootEnabled = false -- 初期設定は OFF
 
--- 距離に応じた最適なパワー割合（0.0～1.0）を計算する関数（遠距離補正あり）
+-- 距離に応じた最適なパワー割合（0.0～1.0）を計算する関数（全距離対応版）
 local function calculatePerfectRatio(distance)
-    if distance <= 0 then
-        return 0.3
+    -- 近距離・中距離・遠距離を一定のカーブで補完する計算式
+    -- 距離 15 付近（近距離）-> 約 0.45
+    -- 距離 30 付近（中距離）-> 約 0.70
+    -- 距離 50 以上（遠距離）-> 1.0 (最大)
+    local minDist = 10
+    local maxDist = 50
+    
+    if distance <= minDist then
+        return 0.35
     end
-
-    local v35 = distance / 30
-    local baseRatio = math.log(v35) / 1.2039728043259361 * 0.4 + 0.4
-    local distanceBoost = (distance / 45) * 0.15
-    local finalRatio = baseRatio + distanceBoost
-
-    return math.clamp(finalRatio, 0.3, 1.0)
+    
+    local alpha = (distance - minDist) / (maxDist - minDist)
+    local ratio = 0.35 + (alpha * 0.65)
+    
+    return math.clamp(ratio, 0.35, 1.0)
 end
 
 -- 最寄りのゴールを取得
@@ -3920,7 +3924,7 @@ local function executeShoot()
         -- 3. シュート発射
         shootAction:FireServer("shoot", targetRatio * 1.25)
 
-        print(string.format("[AutoShoot] Dist: %.2f | HoldTime: %.2f sec", distance, holdTime))
+        print(string.format("[AutoShoot] Dist: %.2f | HoldTime: %.2f sec | Ratio: %.2f", distance, holdTime, targetRatio))
     end
 end
 
@@ -3979,13 +3983,13 @@ local corner = Instance.new("UICorner")
 corner.CornerRadius = UDim.new(0, 8)
 corner.Parent = frame
 
--- ON / OFF 切替ボタン
+-- ON / OFF 切替ボタン（初期状態 OFF）
 local toggleBtn = Instance.new("TextButton")
 toggleBtn.Name = "ToggleButton"
 toggleBtn.Size = UDim2.new(0.9, 0, 0.8, 0)
 toggleBtn.Position = UDim2.new(0.05, 0, 0.1, 0)
-toggleBtn.BackgroundColor3 = Color3.fromRGB(0, 170, 100) -- ON時は緑色
-toggleBtn.Text = "Auto Shoot: ON"
+toggleBtn.BackgroundColor3 = Color3.fromRGB(170, 50, 50) -- OFF時は赤色
+toggleBtn.Text = "Auto Shoot: OFF"
 toggleBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
 toggleBtn.TextSize = 12
 toggleBtn.Font = Enum.Font.SourceSansBold
@@ -4024,6 +4028,7 @@ updateVisibility()
 
 -- gameType が変更された時の監視
 ReplicatedStorage:GetAttributeChangedSignal("gameType"):Connect(updateVisibility)
+
 
 end
 
