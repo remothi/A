@@ -3582,8 +3582,8 @@ local TargetFolders = {
 	PassTheBomb = true,
 	FallingPanels = true,
 	SquatJump = true,
-	VSPassTheBomb = true,
-	VsFallingPanels = true,
+	VSSquatJump = true,
+	VSFallingPanels = true,
 	VSBasketball = true,
 
 }
