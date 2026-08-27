@@ -3860,7 +3860,7 @@ local CoreGui = game:GetService("CoreGui")
 local LocalPlayer = Players.LocalPlayer
 
 -- 固定値設定（1.7秒）
-local MAX_CHARGE_TIME = 1.23
+local MAX_CHARGE_TIME = 1.21
 local isAutoShootEnabled = false -- 初期設定は OFF
 
 -- 距離に応じた最適なパワー割合（0.0～1.0）を計算する関数（全距離対応版）
