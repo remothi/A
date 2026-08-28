@@ -1041,6 +1041,7 @@ end)
 updateLabel()
 end
 
+
 do
 local RunService = game:GetService("RunService")
 local CoreGui = game:GetService("CoreGui")
@@ -1211,7 +1212,7 @@ statusLabel.TextXAlignment = Enum.TextXAlignment.Left
 Instance.new("UICorner", statusLabel).CornerRadius = UDim.new(0, 4)
 table.insert(countLabels, statusLabel)
 
--- --- CurrentRoom 判定（バウンディングボックス優先 ＋ 親要素探索強化） ---
+-- --- CurrentRoom 判定 ---
 
 local function getCurrentRoom()
     local School = Workspace:FindFirstChild("School")
@@ -1224,7 +1225,6 @@ local function getCurrentRoom()
 
     for _, room in ipairs(School:GetChildren()) do
         if room:IsA("Model") or room:IsA("Folder") then
-            -- 1. BoundingBox判定（ボタン部屋などの各種仕掛け部屋を最優先検知）
             if room:IsA("Model") then
                 local cframe, size = room:GetBoundingBox()
                 local localPos = cframe:PointToObjectSpace(pPos)
@@ -1237,7 +1237,6 @@ local function getCurrentRoom()
                 end
             end
 
-            -- 2. 一番近い部屋パーツの距離検出
             local part = findAnyPart(room)
             if part then
                 local dist = (pPos - part.Position).Magnitude
@@ -1249,7 +1248,6 @@ local function getCurrentRoom()
         end
     end
 
-    -- 3. 距離が一定以内であれば対象部屋とする
     if bestRoom and minDistance < 60 then
         return bestRoom
     end
@@ -1261,6 +1259,28 @@ end
 
 local function processSingleRadioRoom(room)
     if not room or not room:FindFirstChild("PuzzleObjects") or not room.PuzzleObjects:FindFirstChild("Radios") then return end
+    
+    local playerCount = #Players:GetPlayers()
+    local sendCount = 1
+    local waitInterval = 0.08
+
+    if playerCount >= 8 then
+        sendCount = 3
+        waitInterval = 0.25
+    elseif playerCount >= 4 then
+        sendCount = 2
+        waitInterval = 0.15
+    end
+
+    local function sendValue(workEvent, radio, val)
+        for i = 1, sendCount do
+            workEvent:FireServer(radio, val)
+            if sendCount > 1 and i < sendCount then
+                task.wait(0.02)
+            end
+        end
+    end
+
     task.spawn(function()
         local radios = room.PuzzleObjects.Radios:GetChildren()
         local workEvent = room:WaitForChild("PuzzleWork")
@@ -1271,18 +1291,20 @@ local function processSingleRadioRoom(room)
                 local prompt = findPromptRecursive(radio)
                 if not prompt then return end
 
-                if target.Value == 0 then
-                    target.Value = 0.05
-                    workEvent:FireServer(radio, 0.05)
-                    task.wait(0.05)
-                end
-
-                local step = 0.2
+                local step = 0.15
                 local lastVolume = volume.Value
 
                 while prompt.Parent and volume.Value < 0.90 do
                     local cv = volume.Value
+                    local currTarget = target.Value
 
+                    -- 0以下または0付近に張り付いて固まる問題の修正（0判定ループの防止）
+                    if currTarget <= 0.01 then
+                        currTarget = 0.2
+                        step = 0.15
+                    end
+
+                    -- 音量が伸びていない（逆方向または停滞）場合は刻みを反転
                     if cv <= lastVolume then
                         step = -step * 0.5
                         if math.abs(step) < 0.02 then
@@ -1290,25 +1312,27 @@ local function processSingleRadioRoom(room)
                         end
                     end
 
-                    local nextVal = target.Value + step
+                    local nextVal = currTarget + step
 
-                    if nextVal <= 0 then
-                        nextVal = 0.3
+                    -- 範囲外（0以下〜1以上）を安全に補正
+                    if nextVal <= 0.05 then
+                        nextVal = 0.25
                         step = 0.15
-                    elseif nextVal >= 1 then
-                        nextVal = 0.7
+                    elseif nextVal >= 0.95 then
+                        nextVal = 0.75
                         step = -0.15
                     end
 
                     target.Value = nextVal
-                    workEvent:FireServer(radio, nextVal)
+                    sendValue(workEvent, radio, nextVal)
 
                     lastVolume = cv
-                    task.wait(0.08)
+                    task.wait(waitInterval)
                 end
 
+                -- クリア後の維持ループ
                 while prompt and prompt.Parent do
-                    workEvent:FireServer(radio, target.Value)
+                    sendValue(workEvent, radio, target.Value)
                     task.wait(0.1)
                 end
             end)
@@ -1529,7 +1553,6 @@ task.spawn(function()
     local lastCounts = {0,0,0,0}
     local targets = {"Locker", "RadioRoom", "StrongboxRoom", "SweepingRoom"}
     while true do
-        -- 部屋数の更新
         for i, name in ipairs(targets) do
             local count = countRooms(name)
             if count ~= lastCounts[i] then
@@ -1538,7 +1561,6 @@ task.spawn(function()
             end
         end
 
-        -- 現在立ち入っている対象部屋のリアルタイム監視・表示
         local cRoom = getCurrentRoom()
         if cRoom then
             statusLabel.Text = " 対象: " .. cRoom.Name
@@ -1563,6 +1585,7 @@ RunService.RenderStepped:Connect(function()
     end
 end)
 end
+
 
 
 
@@ -3849,8 +3872,10 @@ UserInputService.InputChanged:Connect(function(input)
 end)
 end
 
-do-- ========================================================
--- VS Basketball Auto Shoot GUI (Middle Distance & Default OFF Fix)
+do
+
+-- ========================================================
+-- VS Basketball Auto Shoot GUI (Short Distance Fix & Default OFF)
 -- ========================================================
 
 local Players = game:GetService("Players")
@@ -3859,27 +3884,27 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local CoreGui = game:GetService("CoreGui")
 local LocalPlayer = Players.LocalPlayer
 
--- 固定値設定（1.7秒）
+-- MAXチャージ時間（現在調整中の 1.21 秒）
 local MAX_CHARGE_TIME = 1.21
 local isAutoShootEnabled = false -- 初期設定は OFF
 
--- 距離に応じた最適なパワー割合（0.0～1.0）を計算する関数（全距離対応版）
+-- 距離に応じた最適なパワー割合（0.0～1.0）を計算する関数（近距離補正版）
 local function calculatePerfectRatio(distance)
-    -- 近距離・中距離・遠距離を一定のカーブで補完する計算式
-    -- 距離 15 付近（近距離）-> 約 0.45
-    -- 距離 30 付近（中距離）-> 約 0.70
-    -- 距離 50 以上（遠距離）-> 1.0 (最大)
-    local minDist = 10
-    local maxDist = 50
-    
+    -- 近距離でも届くように下限(minRatio)を 0.42 に引き上げ
+    local minDist = 8
+    local maxDist = 55
+    local minRatio = 0.42
+    local maxRatio = 1.0
+
     if distance <= minDist then
-        return 0.35
+        return minRatio
     end
-    
-    local alpha = (distance - minDist) / (maxDist - minDist)
-    local ratio = 0.35 + (alpha * 0.65)
-    
-    return math.clamp(ratio, 0.35, 1.0)
+
+    -- 距離に応じた線形補完
+    local alpha = math.clamp((distance - minDist) / (maxDist - minDist), 0, 1)
+    local ratio = minRatio + (alpha * (maxRatio - minRatio))
+
+    return math.clamp(ratio, minRatio, maxRatio)
 end
 
 -- 最寄りのゴールを取得
@@ -4028,7 +4053,6 @@ updateVisibility()
 
 -- gameType が変更された時の監視
 ReplicatedStorage:GetAttributeChangedSignal("gameType"):Connect(updateVisibility)
-
 
 end
 
