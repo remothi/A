@@ -3888,19 +3888,20 @@ local LocalPlayer = Players.LocalPlayer
 local MAX_CHARGE_TIME = 1.21
 local isAutoShootEnabled = false -- 初期設定は OFF
 
--- 距離に応じた最適なパワー割合（0.0～1.0）を計算する関数（距離22以下は0.64秒固定）
+-- 距離に応じた最適なパワー割合（0.0～1.0）を計算する関数
 local function calculatePerfectRatio(distance)
-    -- 距離が 22 以下の場合は 0.64 秒固定になる比率を返す
+    -- 距離 22 以下の場合は 0.64 秒固定（割合換算）
     if distance <= 22 then
         return 0.64 / MAX_CHARGE_TIME
     end
 
-    local minDist = 22
+    -- 22 を超える場合は元の計算式を使用
+    local minDist = 8
     local maxDist = 55
-    local minRatio = 0.64 / MAX_CHARGE_TIME
+    local minRatio = 0.42
     local maxRatio = 1.0
 
-    -- 距離に応じた線形補完 (22 ~ 55)
+    -- 距離に応じた線形補完
     local alpha = math.clamp((distance - minDist) / (maxDist - minDist), 0, 1)
     local ratio = minRatio + (alpha * (maxRatio - minRatio))
 
