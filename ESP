@@ -1101,8 +1101,8 @@ gui.Parent = CoreGui
 
 local frame = Instance.new("Frame")
 frame.Name = "MainFrame"
-frame.AnchorPoint = Vector2.new(0.5, 0.5)
-frame.Position = UDim2.new(0.5, 0, 0.5, 0)
+frame.AnchorPoint = Vector2.new(0, 0)
+frame.Position = UDim2.new(0.5, -110, 0.5, -147)
 frame.Size = UDim2.new(0, 220, 0, 295)
 frame.BackgroundColor3 = Color3.fromRGB(35, 35, 35)
 frame.BorderSizePixel = 0
@@ -1212,7 +1212,13 @@ statusLabel.TextXAlignment = Enum.TextXAlignment.Left
 Instance.new("UICorner", statusLabel).CornerRadius = UDim.new(0, 4)
 table.insert(countLabels, statusLabel)
 
--- --- CurrentRoom 判定 ---
+-- --- CurrentRoom 判定（指定の3種のみ） ---
+
+local function isTargetRoom(room)
+    if not room then return false end
+    local rName = room.Name
+    return rName:match("RadioRoom") or rName:match("StrongboxRoom") or rName:match("SweepingRoom") or rName:match("Sweeping")
+end
 
 local function getCurrentRoom()
     local School = Workspace:FindFirstChild("School")
@@ -1224,7 +1230,7 @@ local function getCurrentRoom()
     local minDistance = math.huge
 
     for _, room in ipairs(School:GetChildren()) do
-        if room:IsA("Model") or room:IsA("Folder") then
+        if isTargetRoom(room) then
             if room:IsA("Model") then
                 local cframe, size = room:GetBoundingBox()
                 local localPos = cframe:PointToObjectSpace(pPos)
@@ -1298,14 +1304,12 @@ local function processSingleRadioRoom(room)
                     local cv = volume.Value
                     local currTarget = target.Value
 
-                    -- 0以下または0付近に張り付いて固まる問題の修正（0判定ループの防止）
                     if currTarget <= 0.01 then
-                        currTarget = 0.2
+                        currTarget = 0.1
                         step = 0.15
                     end
 
-                    -- 音量が伸びていない（逆方向または停滞）場合は刻みを反転
-                    if cv <= lastVolume then
+                    if cv < lastVolume and currTarget < 0.85 then
                         step = -step * 0.5
                         if math.abs(step) < 0.02 then
                             step = (step < 0) and -0.15 or 0.15
@@ -1314,13 +1318,12 @@ local function processSingleRadioRoom(room)
 
                     local nextVal = currTarget + step
 
-                    -- 範囲外（0以下〜1以上）を安全に補正
-                    if nextVal <= 0.05 then
-                        nextVal = 0.25
+                    if nextVal <= 0.02 then
+                        nextVal = 0.15
                         step = 0.15
-                    elseif nextVal >= 0.95 then
-                        nextVal = 0.75
-                        step = -0.15
+                    elseif nextVal >= 0.99 then
+                        nextVal = 0.92
+                        step = -0.05
                     end
 
                     target.Value = nextVal
@@ -1330,7 +1333,6 @@ local function processSingleRadioRoom(room)
                     task.wait(waitInterval)
                 end
 
-                -- クリア後の維持ループ
                 while prompt and prompt.Parent do
                     sendValue(workEvent, radio, target.Value)
                     task.wait(0.1)
@@ -1585,6 +1587,7 @@ RunService.RenderStepped:Connect(function()
     end
 end)
 end
+
 
 
 
@@ -3378,6 +3381,7 @@ end)
 
 connectItemFolder()
 end
+
 do
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
@@ -3478,10 +3482,11 @@ UserInputService.InputChanged:Connect(function(input)
 end)
 
 -- =============================================================================
--- [2] 強化版プラットフォーム追従システム (サイズ12x12 & PreRender同期)
+-- [2] 強化版プラットフォーム追従システム (サイズ12x12 & 高低差固定・貫通防止)
 -- =============================================================================
 local isToggled = false
 local platformPart = nil
+local fixedPlatformY = nil
 
 local function createPlatform()
 	if platformPart and platformPart.Parent then return end
@@ -3500,6 +3505,7 @@ local function removePlatform()
 		platformPart:Destroy()
 		platformPart = nil
 	end
+	fixedPlatformY = nil
 end
 
 ToggleButton.MouseButton1Click:Connect(function()
@@ -3532,15 +3538,20 @@ bypassConnection = RunService.PreRender:Connect(function()
 		raycastParams.FilterDescendantsInstances = {char, platformPart}
 		raycastParams.FilterType = Enum.RaycastFilterType.Exclude
 		
-		local rayResult = workspace:Raycast(hrp.Position, Vector3.new(0, -20, 0), raycastParams)
+		-- キャラの足元から下の元の床を取得（レイの長さを拡張してブレを吸着）
+		local rayResult = workspace:Raycast(hrp.Position, Vector3.new(0, -50, 0), raycastParams)
 		
 		if rayResult then
-			-- 元の地面から 0.5 マス上に浮かせる位置調整
+			-- 元の地面から 0.5 マス上に浮かせる位置（高さを固定して貫通を防ぐ）
 			local targetFloorY = rayResult.Position.Y + 0.5
-			local platformY = targetFloorY - 0.25
+			fixedPlatformY = targetFloorY - 0.25
 			
 			createPlatform()
-			platformPart.CFrame = CFrame.new(hrp.Position.X, platformY, hrp.Position.Z)
+			platformPart.CFrame = CFrame.new(hrp.Position.X, fixedPlatformY, hrp.Position.Z)
+		elseif fixedPlatformY then
+			-- Raycastが一時外れても高さを維持したままX/Zのみ追従
+			createPlatform()
+			platformPart.CFrame = CFrame.new(hrp.Position.X, fixedPlatformY, hrp.Position.Z)
 		else
 			removePlatform()
 		end
@@ -3550,7 +3561,7 @@ bypassConnection = RunService.PreRender:Connect(function()
 end)
 
 -- =============================================================================
--- [3] クリーンアップ & gameType 監視
+-- [3] クリーンアップ & gameType 監視 (SquatJump / VSSquatJump / SquatJumpEasy 対応)
 -- =============================================================================
 local function shutdown()
 	if bypassConnection then bypassConnection:Disconnect() end
@@ -3566,7 +3577,7 @@ local function checkGameType()
 		return ReplicatedStorage:GetAttribute("gameType")
 	end)
 	
-	if success and currentType == "SquatJump" then
+	if success and (currentType == "SquatJump" or currentType == "VSSquatJump" or currentType == "SquatJumpEasy") then
 		ScreenGui.Enabled = true
 	else
 		ScreenGui.Enabled = false
@@ -3581,6 +3592,7 @@ checkGameType()
 ReplicatedStorage:GetAttributeChangedSignal("gameType"):Connect(checkGameType)
 
 end
+
 do
 local Players = game:GetService("Players")
 
