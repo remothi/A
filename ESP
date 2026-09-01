@@ -3366,7 +3366,7 @@ ScreenGui.Parent = localPlayer:WaitForChild("PlayerGui")
 
 local MainFrame = Instance.new("Frame")
 MainFrame.Size = UDim2.new(0, 150, 0, 90)
-MainFrame.Position = UDim2.new(0.5, -75, 0.25, -45) -- 中央より少し上
+MainFrame.Position = UDim2.new(0.5, -75, 0.25, -45)
 MainFrame.BackgroundColor3 = Color3.fromRGB(30, 30, 30)
 MainFrame.BorderSizePixel = 0
 MainFrame.Active = true
@@ -3443,21 +3443,22 @@ UserInputService.InputChanged:Connect(function(input)
 end)
 
 -- =============================================================================
--- [2] 強化版プラットフォーム追従システム (サイズ12x12 & 高低差固定・貫通防止)
+-- [2] 肉厚アンカー式プラットフォーム追従システム
 -- =============================================================================
 local isToggled = false
 local platformPart = nil
 local fixedPlatformY = nil
+local currentOffset = 0.7 -- デフォルト値
 
 local function createPlatform()
 	if platformPart and platformPart.Parent then return end
 	
 	platformPart = Instance.new("Part")
 	platformPart.Name = "SquatBypassPlatform"
-	platformPart.Size = Vector3.new(12, 0.5, 12) -- 歩いてもはみ出さない広さ
+	platformPart.Size = Vector3.new(14, 2, 14)
 	platformPart.Anchored = true
 	platformPart.CanCollide = true
-	platformPart.Transparency = 1 -- 完全透明
+	platformPart.Transparency = 1
 	platformPart.Parent = workspace
 end
 
@@ -3482,7 +3483,7 @@ ToggleButton.MouseButton1Click:Connect(function()
 	end
 end)
 
--- 移動のラグをゼロにするためPreRenderで同期
+-- PreRender同期
 local bypassConnection
 bypassConnection = RunService.PreRender:Connect(function()
 	if not isToggled then 
@@ -3499,18 +3500,16 @@ bypassConnection = RunService.PreRender:Connect(function()
 		raycastParams.FilterDescendantsInstances = {char, platformPart}
 		raycastParams.FilterType = Enum.RaycastFilterType.Exclude
 		
-		-- キャラの足元から下の元の床を取得（レイの長さを拡張してブレを吸着）
 		local rayResult = workspace:Raycast(hrp.Position, Vector3.new(0, -50, 0), raycastParams)
 		
 		if rayResult then
-			-- 元の地面から 0.5 マス上に浮かせる位置（高さを固定して貫通を防ぐ）
-			local targetFloorY = rayResult.Position.Y + 0.5
-			fixedPlatformY = targetFloorY - 0.25
+			-- 指定の高さオフセット（0.7 または 2.0）を適用
+			local targetFloorY = rayResult.Position.Y + currentOffset
+			fixedPlatformY = targetFloorY - 1.0
 			
 			createPlatform()
 			platformPart.CFrame = CFrame.new(hrp.Position.X, fixedPlatformY, hrp.Position.Z)
 		elseif fixedPlatformY then
-			-- Raycastが一時外れても高さを維持したままX/Zのみ追従
 			createPlatform()
 			platformPart.CFrame = CFrame.new(hrp.Position.X, fixedPlatformY, hrp.Position.Z)
 		else
@@ -3522,7 +3521,7 @@ bypassConnection = RunService.PreRender:Connect(function()
 end)
 
 -- =============================================================================
--- [3] クリーンアップ & gameType 監視 (SquatJump / VSSquatJump / SquatJumpEasy 対応)
+-- [3] クリーンアップ & gameType 監視 (高度の自動変更)
 -- =============================================================================
 local function shutdown()
 	if bypassConnection then bypassConnection:Disconnect() end
@@ -3538,8 +3537,20 @@ local function checkGameType()
 		return ReplicatedStorage:GetAttribute("gameType")
 	end)
 	
-	if success and (currentType == "SquatJump" or currentType == "VSSquatJump" or currentType == "SquatJumpEasy") then
-		ScreenGui.Enabled = true
+	if success then
+		if currentType == "SquatJump" or currentType == "SquatJumpEasy" then
+			currentOffset = 0.7
+			ScreenGui.Enabled = true
+		elseif currentType == "VSSquatJump" then
+			currentOffset = 2.0
+			ScreenGui.Enabled = true
+		else
+			ScreenGui.Enabled = false
+			isToggled = false
+			ToggleButton.BackgroundColor3 = Color3.fromRGB(60, 60, 60)
+			ToggleButton.Text = "Platform: OFF"
+			removePlatform()
+		end
 	else
 		ScreenGui.Enabled = false
 		isToggled = false
@@ -3553,6 +3564,7 @@ checkGameType()
 ReplicatedStorage:GetAttributeChangedSignal("gameType"):Connect(checkGameType)
 
 end
+
 
 do
 local Players = game:GetService("Players")
