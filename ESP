@@ -1043,6 +1043,7 @@ end
 
 
 do
+
 local RunService = game:GetService("RunService")
 local CoreGui = game:GetService("CoreGui")
 local Workspace = game:GetService("Workspace")
@@ -1239,7 +1240,7 @@ end
 
 -- --- パズル解決単体ロジック ---
 
-local function local function processSingleRadioRoom(room)
+local function processSingleRadioRoom(room)
     if not room or not room:FindFirstChild("PuzzleObjects") or not room.PuzzleObjects:FindFirstChild("Radios") then return end
 
     local function sendValue(workEvent, radio, val)
@@ -1299,7 +1300,6 @@ local function local function processSingleRadioRoom(room)
         end
     end)
 end
-
 
 local function processSingleStrongboxRoom(room)
     if not room then return end
@@ -1545,6 +1545,7 @@ RunService.RenderStepped:Connect(function()
         end
     end
 end)
+
 end
 
 
