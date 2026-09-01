@@ -1239,28 +1239,11 @@ end
 
 -- --- パズル解決単体ロジック ---
 
-local function processSingleRadioRoom(room)
+local function local function processSingleRadioRoom(room)
     if not room or not room:FindFirstChild("PuzzleObjects") or not room.PuzzleObjects:FindFirstChild("Radios") then return end
-    
-    local playerCount = #Players:GetPlayers()
-    local sendCount = 1
-    local waitInterval = 0.08
-
-    if playerCount >= 8 then
-        sendCount = 3
-        waitInterval = 0.25
-    elseif playerCount >= 4 then
-        sendCount = 2
-        waitInterval = 0.15
-    end
 
     local function sendValue(workEvent, radio, val)
-        for i = 1, sendCount do
-            workEvent:FireServer(radio, val)
-            if sendCount > 1 and i < sendCount then
-                task.wait(0.02)
-            end
-        end
+        workEvent:FireServer(radio, val)
     end
 
     task.spawn(function()
@@ -1275,53 +1258,48 @@ local function processSingleRadioRoom(room)
 
                 local step = 0.15
                 local lastVolume = volume.Value
+                local sendVal = target.Value > 0 and target.Value or 0.5
 
-                -- 音量(volume)または設定値(target)が0.90未満の間は数値を進行させる
-                while prompt.Parent and volume.Value < 0.90 and target.Value < 0.90 do
+                -- 【探索フェーズ】Volume が 0.90 以上になる正解の Target 値を探す
+                while prompt and prompt.Parent and volume.Value < 0.90 do
                     local cv = volume.Value
-                    local currTarget = target.Value
 
-                    -- 0以下付近に固まっている場合はプラス方向に強制復帰
-                    if currTarget <= 0.02 then
-                        currTarget = 0.15
-                        step = math.abs(step)
-                    end
-
-                    -- 音量が伸びていない場合のみ刻みを反転
-                    if cv < lastVolume and currTarget < 0.85 then
-                        step = -step * 0.5
+                    -- 音量が下がった（遠ざかった）場合は進む方向を反転＆刻みを細かくする
+                    if cv < lastVolume and cv > 0 then
+                        step = -step * 0.6
                         if math.abs(step) < 0.02 then
-                            step = (step < 0) and -0.15 or 0.15
+                            step = (step < 0) and -0.10 or 0.10
                         end
                     end
 
-                    local nextVal = currTarget + step
+                    sendVal = sendVal + step
 
-                    -- 範囲補正
-                    if nextVal <= 0.02 then
-                        nextVal = 0.15
-                        step = 0.15
-                    elseif nextVal >= 0.99 then
-                        nextVal = 0.92
-                        step = -0.05
+                    -- 0.01〜0.99 の範囲に収める
+                    if sendVal <= 0.01 then
+                        sendVal = 0.05
+                        step = math.abs(step)
+                    elseif sendVal >= 0.99 then
+                        sendVal = 0.95
+                        step = -math.abs(step)
                     end
 
-                    target.Value = nextVal
-                    sendValue(workEvent, radio, nextVal)
+                    sendValue(workEvent, radio, sendVal)
 
                     lastVolume = cv
-                    task.wait(waitInterval)
+                    task.wait(0.08)
                 end
 
-                -- 正解値に到達後も数値を送り続ける（ゲーム仕様の維持）
+                -- 【クリアフェーズ】Volume >= 0.90 に達した正解値をプロンプトが消えるまで一定回数送り続ける
+                local solvedVal = sendVal
                 while prompt and prompt.Parent do
-                    sendValue(workEvent, radio, target.Value)
-                    task.wait(0.1)
+                    sendValue(workEvent, radio, solvedVal)
+                    task.wait(0.05)
                 end
             end)
         end
     end)
 end
+
 
 local function processSingleStrongboxRoom(room)
     if not room then return end
