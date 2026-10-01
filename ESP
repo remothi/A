@@ -171,7 +171,7 @@ local function createESP(model, name, color)
                             numLabel.TextScaled = true
                             numLabel.Font = Enum.Font.ArialBold
                             numLabel.Text = number
-                            numLabel.Parent = espGui -- 修正箇所
+                            numLabel.Parent = espGui
                             table.insert(sweepingLabels,{label=numLabel,source=labelObj,parentGui=espGui})
                         end
                     end
@@ -226,6 +226,68 @@ local function scanESP()
             for _,item in pairs(itemFolder:GetChildren()) do
                 if item:IsA("Model") then
                     createESP(item, item.Name, Color3.fromRGB(0,170,255))
+                end
+            end
+        end
+
+        -- Workspace.Bat の追加
+        local bat = Workspace:FindFirstChild("Bat")
+        if bat then
+            if bat:IsA("Model") then
+                createESP(bat, bat.Name, Color3.fromRGB(0,170,255))
+            elseif bat:IsA("BasePart") then
+                local dummyModel = Instance.new("Model")
+                dummyModel.Name = bat.Name
+                bat.Parent = dummyModel
+                dummyModel.PrimaryPart = bat
+                dummyModel.Parent = Workspace
+                createESP(dummyModel, bat.Name, Color3.fromRGB(0,170,255))
+            end
+        end
+    end
+
+    -- RescueChildren のモデル追加
+    local rescueChildrenFolder = Workspace:FindFirstChild("RescueChildren")
+    if rescueChildrenFolder then
+        for _,childModel in pairs(rescueChildrenFolder:GetChildren()) do
+            if childModel:IsA("Model") then
+                createESP(childModel, childModel.Name, Color3.fromRGB(0,255,255))
+            end
+        end
+    end
+
+    -- Basement 関連の判定
+    local basement = Workspace:FindFirstChild("Basement")
+    if basement then
+        -- HintAnchors の判定（ShapeHint があるもの）
+        local anchors = basement:FindFirstChild("Anchors")
+        local hintAnchors = anchors and anchors:FindFirstChild("HintAnchors")
+        if hintAnchors then
+            for i = 1, 5 do
+                local anchorObj = hintAnchors:FindFirstChild("HintAnchor"..i)
+                if anchorObj and anchorObj:FindFirstChild("ShapeHint") then
+                    if anchorObj:IsA("Model") then
+                        createESP(anchorObj, anchorObj.Name, Color3.fromRGB(255,255,0))
+                    elseif anchorObj:IsA("BasePart") then
+                        local dummyModel = Instance.new("Model")
+                        dummyModel.Name = anchorObj.Name
+                        anchorObj.Parent = dummyModel
+                        dummyModel.PrimaryPart = anchorObj
+                        dummyModel.Parent = hintAnchors
+                        createESP(dummyModel, anchorObj.Name, Color3.fromRGB(255,255,0))
+                    end
+                end
+            end
+        end
+
+        -- JailGate 内のモデル (Clear 属性が true のものは除く)
+        local jailGate = basement:FindFirstChild("JailGate")
+        if jailGate then
+            for _, gateModel in pairs(jailGate:GetChildren()) do
+                if gateModel:IsA("Model") then
+                    if gateModel:GetAttribute("Clear") ~= true then
+                        createESP(gateModel, gateModel.Name, Color3.fromRGB(200,0,255))
+                    end
                 end
             end
         end
@@ -320,6 +382,8 @@ task.spawn(function()
     end
 end)
 end
+
+
 
 
 
