@@ -400,7 +400,6 @@ task.spawn(function()
 end)
 end
 do
-
 local player = game.Players.LocalPlayer
 local RunService = game:GetService("RunService")
 local UserInputService = game:GetService("UserInputService")
@@ -440,7 +439,7 @@ local function applyNoclip()
 			local hrp = player.Character:FindFirstChild("HumanoidRootPart")
 			if hrp then
 				local pos = hrp.Position
-				if pos.Y < 0 then
+				if pos.Y < -370 then
 					local ori = hrp.Orientation
 					hrp.CFrame = CFrame.new(Vector3.new(pos.X, 3, pos.Z)) * CFrame.Angles(
 						math.rad(ori.X),
@@ -492,18 +491,24 @@ local dragging = false
 local dragStart, startPos
 local moved = false
 local dragThreshold = 5
+local activeInput = nil -- 操作中の指（ID）を保持
 
 Button.InputBegan:Connect(function(input)
-	if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+	if (input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch) and not activeInput then
+		activeInput = input
 		dragging = true
 		moved = false
 		dragStart = input.Position
 		startPos = Button.Position
+		
 		input.Changed:Connect(function()
-			if input.UserInputState == Enum.UserInputState.End then
-				dragging = false
-				if not moved then
-					setNoclip(not noclipEnabled)
+			if input.UserInputState == Enum.UserInputState.End or input.UserInputState == Enum.UserInputState.Cancel then
+				if activeInput == input then
+					dragging = false
+					activeInput = nil
+					if not moved then
+						setNoclip(not noclipEnabled)
+					end
 				end
 			end
 		end)
@@ -511,7 +516,7 @@ Button.InputBegan:Connect(function(input)
 end)
 
 UserInputService.InputChanged:Connect(function(input)
-	if dragging and (input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch) then
+	if dragging and input == activeInput and (input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch) then
 		local delta = input.Position - dragStart
 		if math.abs(delta.X) > dragThreshold or math.abs(delta.Y) > dragThreshold then
 			moved = true
@@ -533,6 +538,12 @@ UserInputService.InputChanged:Connect(function(input)
 	end
 end)
 
+UserInputService.InputEnded:Connect(function(input)
+	if input == activeInput then
+		dragging = false
+		activeInput = nil
+	end
+end)
 end
 
 
@@ -4361,4 +4372,76 @@ toggleBtn.MouseButton1Click:Connect(function()
     end
 end)
 
+end
+do
+local Players = game:GetService("Players")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local player = Players.LocalPlayer
+local playerGui = player:WaitForChild("PlayerGui")
+
+-- ボタンと機能を管理する関数
+local function updateButtonState()
+	local gameType = ReplicatedStorage:GetAttribute("gameType")
+	local existingGui = playerGui:FindFirstChild("UnderzoneMazeButtonGui")
+
+	if gameType == "UndergroundMaze" then
+		if existingGui then return end -- すでに存在する場合は何もしない
+
+		-- 画面用GUIの作成
+		local screenGui = Instance.new("ScreenGui")
+		screenGui.Name = "UnderzoneMazeButtonGui"
+		screenGui.ResetOnSpawn = false
+		screenGui.Parent = playerGui
+
+		-- 操作用ボタンの作成（右上ら辺に配置）
+		local button = Instance.new("TextButton")
+		button.Name = "ExitButton"
+		button.Size = UDim2.new(0, 150, 0, 45)
+		button.Position = UDim2.new(1, -165, 0, 20)
+		button.BackgroundColor3 = Color3.fromRGB(40, 160, 255)
+		button.TextColor3 = Color3.fromRGB(255, 255, 255)
+		button.TextSize = 15
+		button.Font = Enum.Font.SourceSansBold
+		button.Text = "ExitZoneを発火"
+		button.Parent = screenGui
+
+		-- 角丸デザイン
+		local corner = Instance.new("UICorner")
+		corner.CornerRadius = UDim.new(0, 10)
+		corner.Parent = button
+
+		-- ボタンタップ時の処理
+		button.MouseButton1Click:Connect(function()
+			local success, err = pcall(function()
+				local exitZone = workspace.UndergroundStage2.UndergroundMaze.EndCap.Anchors.ExitZone
+				local character = player.Character or player.CharacterAdded:Wait()
+				local rootPart = character:WaitForChild("HumanoidRootPart")
+
+				if firetouchinterest and exitZone and rootPart then
+					-- タッチイベントをシミュレート (Touch, Untouch)
+					firetouchinterest(rootPart, exitZone, 0)
+					task.wait(0.05)
+					firetouchinterest(rootPart, exitZone, 1)
+				end
+			end)
+
+			if not success then
+				warn("ExitZoneの取得または発火に失敗しました: " .. tostring(err))
+			end
+		end)
+	else
+		-- 条件に一致しない場合はGUIを削除
+		if existingGui then
+			existingGui:Destroy()
+		end
+	end
+end
+
+-- 起動時の初期チェック
+updateButtonState()
+
+-- ReplicatedStorageの gameType 属性が変更されたときに自動で切り替え
+ReplicatedStorage:GetAttributeChangedSignal("gameType"):Connect(function()
+	updateButtonState()
+end)
 end
