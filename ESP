@@ -4376,79 +4376,6 @@ end
 do
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
-local player = Players.LocalPlayer
-local playerGui = player:WaitForChild("PlayerGui")
-
--- ボタンと機能を管理する関数
-local function updateButtonState()
-	local gameType = ReplicatedStorage:GetAttribute("gameType")
-	local existingGui = playerGui:FindFirstChild("UnderzoneMazeButtonGui")
-
-	if gameType == "UndergroundMaze" then
-		if existingGui then return end -- すでに存在する場合は何もしない
-
-		-- 画面用GUIの作成
-		local screenGui = Instance.new("ScreenGui")
-		screenGui.Name = "UnderzoneMazeButtonGui"
-		screenGui.ResetOnSpawn = false
-		screenGui.Parent = playerGui
-
-		-- 操作用ボタンの作成（右上ら辺に配置）
-		local button = Instance.new("TextButton")
-		button.Name = "ExitButton"
-		button.Size = UDim2.new(0, 150, 0, 45)
-		button.Position = UDim2.new(1, -165, 0, 20)
-		button.BackgroundColor3 = Color3.fromRGB(40, 160, 255)
-		button.TextColor3 = Color3.fromRGB(255, 255, 255)
-		button.TextSize = 15
-		button.Font = Enum.Font.SourceSansBold
-		button.Text = "ExitZoneを発火"
-		button.Parent = screenGui
-
-		-- 角丸デザイン
-		local corner = Instance.new("UICorner")
-		corner.CornerRadius = UDim.new(0, 10)
-		corner.Parent = button
-
-		-- ボタンタップ時の処理
-		button.MouseButton1Click:Connect(function()
-			local success, err = pcall(function()
-				local exitZone = workspace.UndergroundStage2.UndergroundMaze.EndCap.Anchors.ExitZone
-				local character = player.Character or player.CharacterAdded:Wait()
-				local rootPart = character:WaitForChild("HumanoidRootPart")
-
-				if firetouchinterest and exitZone and rootPart then
-					-- タッチイベントをシミュレート (Touch, Untouch)
-					firetouchinterest(rootPart, exitZone, 0)
-					task.wait(0.05)
-					firetouchinterest(rootPart, exitZone, 1)
-				end
-			end)
-
-			if not success then
-				warn("ExitZoneの取得または発火に失敗しました: " .. tostring(err))
-			end
-		end)
-	else
-		-- 条件に一致しない場合はGUIを削除
-		if existingGui then
-			existingGui:Destroy()
-		end
-	end
-end
-
--- 起動時の初期チェック
-updateButtonState()
-
--- ReplicatedStorageの gameType 属性が変更されたときに自動で切り替え
-ReplicatedStorage:GetAttributeChangedSignal("gameType"):Connect(function()
-	updateButtonState()
-end)
-end
-
-do
-local Players = game:GetService("Players")
-local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Workspace = game:GetService("Workspace")
 
 local player = Players.LocalPlayer
@@ -4528,7 +4455,7 @@ distanceLabel.Parent = frame
 local savedPosition = nil
 local generatedPlatform = nil
 
--- 1つ目のボタンの処理（さらに遠く、Y=0 ＆ 足場生成）
+-- 1つ目のボタンの処理（Y=0、超遠距離 ＆ 足場生成）
 tpFarButton.MouseButton1Click:Connect(function()
     local character = player.Character
     if character and character:FindFirstChild("HumanoidRootPart") then
@@ -4536,25 +4463,24 @@ tpFarButton.MouseButton1Click:Connect(function()
         -- 現在の位置を保存
         savedPosition = rootPart.CFrame
         
-        -- もっと遠く、Y=0に設定
-        local targetPos = Vector3.new(999999, 0, 999999)
+        local targetPos = Vector3.new(9999999, 0, 9999999)
         
-        -- 落下防止の足場を作成
+        -- 落下防止の足場を作成（足場はY=-3に配置し、上に立てるようにする）
         if generatedPlatform then
             generatedPlatform:Destroy()
         end
         
         local platform = Instance.new("Part")
-        platform.Size = Vector3.new(30, 1, 30)
-        platform.Position = Vector3.new(999999, -3, 999999)
+        platform.Size = Vector3.new(50, 1, 50)
+        platform.Position = Vector3.new(9999999, -3, 9999999)
         platform.Anchored = true
         platform.BrickColor = BrickColor.new("Bright blue")
         platform.Material = Enum.Material.SmoothPlastic
         platform.Parent = Workspace
         generatedPlatform = platform
         
-        -- テレポート（足場の上に立つようY=3に設定）
-        rootPart.CFrame = CFrame.new(targetPos + Vector3.new(0, 3, 0))
+        -- Yを0にしてテレポート（足元がY=0になるよう調整）
+        rootPart.CFrame = CFrame.new(9999999, 3, 9999999)
     end
 end)
 
@@ -4583,7 +4509,7 @@ end
 updateVisibility()
 ReplicatedStorage:GetAttributeChangedSignal("gameType"):Connect(updateVisibility)
 
--- ラグ対策を施した軽量ループ（0.1秒ごとに処理し、Y軸を無視して距離計算）
+-- ラグ対策を施した軽量ループ（0.1秒ごとに処理し、Y軸を完全に無視して距離計算）
 task.spawn(function()
     while true do
         if frame.Visible then
@@ -4611,7 +4537,7 @@ task.spawn(function()
                     end
                     
                     if targetPos then
-                        -- Y座標は無視してXZ平面のみで距離計算
+                        -- Y座標は完全に無視してXZ平面のみで距離計算
                         local p1 = Vector3.new(rootPos.X, 0, rootPos.Z)
                         local p2 = Vector3.new(targetPos.X, 0, targetPos.Z)
                         local distance = (p1 - p2).Magnitude
