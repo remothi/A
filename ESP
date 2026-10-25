@@ -4558,14 +4558,13 @@ end)
 end
 do
 -- ==========================================
--- JailGate 全自動統合管理スクリプト（gameType制限付き）
+-- JailGate 統合自動スクリプト（最寄りテレポートなし・全自動対応）
 -- ==========================================
 local players = game:GetService("Players")
 local player = players.LocalPlayer
 local replicatedStorage = game:GetService("ReplicatedStorage")
 local runService = game:GetService("RunService")
 local tweenService = game:GetService("TweenService")
-local userInputService = game:GetService("UserInputService")
 
 -- gameType が "UndergroundRescue" になるまで待機
 task.spawn(function()
@@ -4580,14 +4579,14 @@ task.spawn(function()
         playerGui.GateMasterGui:Destroy()
     end
 
-    -- 統合GUIの作成
+    -- GUIの作成
     local screenGui = Instance.new("ScreenGui")
     screenGui.Name = "GateMasterGui"
     screenGui.ResetOnSpawn = false
     screenGui.Parent = playerGui
 
     local frame = Instance.new("Frame")
-    frame.Size = UDim2.new(0, 200, 0, 280)
+    frame.Size = UDim2.new(0, 190, 0, 115)
     frame.Position = UDim2.new(0, 30, 0, 50)
     frame.BackgroundColor3 = Color3.fromRGB(35, 35, 35)
     frame.BorderSizePixel = 0
@@ -4602,13 +4601,13 @@ task.spawn(function()
     local title = Instance.new("TextLabel")
     title.Size = UDim2.new(1, 0, 0, 30)
     title.BackgroundTransparency = 1
-    title.Text = "Gate Master Hub"
+    title.Text = "Gate Auto Master"
     title.TextColor3 = Color3.fromRGB(255, 255, 255)
     title.TextSize = 14
     title.Font = Enum.Font.SourceSansBold
     title.Parent = frame
 
-    -- 共通：バットの自動装備・取得関数
+    -- バットの自動取得・装備
     local function ensureBat(rootPart)
         local character = player.Character
         if not character then return end
@@ -4643,16 +4642,22 @@ task.spawn(function()
         end
     end
 
-    -- 1. バー破壊処理（001, 006, 011）
+    -- 1. バー破壊処理
     local function runGateBars(gateNumStr, isBatchMode, rootPart)
         local camera = workspace.CurrentCamera
-        local gateName = "JailGate_" .. gateNumStr
-        local jailGateFolder = workspace:WaitForChild("Basement"):WaitForChild("JailGate")
-        local targetGate = jailGateFolder:FindFirstChild(gateName)
+        local basement = workspace:WaitForChild("Basement", 5)
+        if not basement then return end
+        local targetGate = basement:WaitForChild("JailGate", 5):FindFirstChild("JailGate_" .. gateNumStr)
         if not targetGate then return end
 
-        local bars = targetGate:WaitForChild("GateGeo"):WaitForChild("Bars")
-        local swingRemote = workspace:WaitForChild("EquipSearchItems"):WaitForChild("Bat"):WaitForChild("SwingAction")
+        local bars = targetGate:WaitForChild("GateGeo", 3) and targetGate.GateGeo:WaitForChild("Bars", 3)
+        if not bars then return end
+
+        local equipSearchItems = workspace:WaitForChild("EquipSearchItems", 5)
+        local batItem = equipSearchItems and equipSearchItems:WaitForChild("Bat", 3)
+        local swingRemote = batItem and batItem:WaitForChild("SwingAction", 3)
+        if not swingRemote then return end
+
         local args = { true }
 
         for i = 1, 5 do
@@ -4700,14 +4705,14 @@ task.spawn(function()
         end
     end
 
-    -- 2. ColorMix パズル処理（009, 002）
+    -- 2. ColorMix パズル処理
     local function runColorMix(gateName, isBatchMode, rootPart)
-        local g20 = workspace:FindFirstChild("Basement")
-            and workspace.Basement:FindFirstChild("JailGate")
-            and workspace.Basement.JailGate:FindFirstChild(gateName)
-            and workspace.Basement.JailGate[gateName]:FindFirstChild("PuzzleColorMix_Kit")
-            and workspace.Basement.JailGate[gateName].PuzzleColorMix_Kit:FindFirstChild("G20_ColorMix")
-
+        local basement = workspace:WaitForChild("Basement", 5)
+        if not basement then return end
+        local gateFolder = basement:WaitForChild("JailGate", 5)
+        local gate = gateFolder and gateFolder:FindFirstChild(gateName)
+        local kit = gate and gate:WaitForChild("PuzzleColorMix_Kit", 3)
+        local g20 = kit and kit:WaitForChild("G20_ColorMix", 3)
         if not g20 then return end
 
         local targets = { Statue1 = 2, Statue2 = 4, Statue3 = 0 }
@@ -4761,15 +4766,16 @@ task.spawn(function()
         end
     end
 
-    -- 3. HintAnchor パズル処理（008, 004）
-    local function runHintAnchorPuzzle(isBatchMode, rootPart)
-        local basement = workspace:FindFirstChild("Basement")
+    -- 3. 単体 HintAnchor パズル処理（004, 008用）
+    local function runSingleHintAnchor(gateNumStr, isBatchMode, rootPart)
+        local basement = workspace:WaitForChild("Basement", 5)
         if not basement then return end
-        local anchors = basement:FindFirstChild("Anchors")
-        local hintAnchors = anchors and anchors:FindFirstChild("HintAnchors")
-        local jailGate = basement:FindFirstChild("JailGate")
-        local gate008 = jailGate and jailGate:FindFirstChild("JailGate_008") and jailGate["JailGate_008"]:FindFirstChild("PuzzleWork")
-        local gate004 = jailGate and jailGate:FindFirstChild("JailGate_004") and jailGate["JailGate_004"]:FindFirstChild("PuzzleWork")
+        local anchors = basement:WaitForChild("Anchors", 3)
+        local hintAnchors = anchors and anchors:WaitForChild("HintAnchors", 3)
+        local jailGate = basement:WaitForChild("JailGate", 3)
+        local targetGate = jailGate and jailGate:FindFirstChild("JailGate_" .. gateNumStr)
+        local puzzleWork = targetGate and targetGate:FindFirstChild("PuzzleWork")
+        if not puzzleWork then return end
 
         local batchConnection = nil
         if isBatchMode and rootPart then
@@ -4809,9 +4815,7 @@ task.spawn(function()
         }
 
         for _, args in ipairs(combinations) do
-            if gate008 then pcall(function() gate008:FireServer(unpack(args)) end) end
-            task.wait(0.1)
-            if gate004 then pcall(function() gate004:FireServer(unpack(args)) end) end
+            pcall(function() puzzleWork:FireServer(unpack(args)) end)
             task.wait(0.1)
         end
 
@@ -4820,7 +4824,7 @@ task.spawn(function()
         end
     end
 
-    -- 4. Jigsaw パズル処理（003, 007）
+    -- 4. Jigsaw パズル処理
     local adj = {
         [1] = {2, 4}, [2] = {1, 3, 5}, [3] = {2, 6},
         [4] = {1, 5, 7}, [5] = {2, 4, 6, 8}, [6] = {3, 5, 9},
@@ -4853,7 +4857,7 @@ task.spawn(function()
             and workspace.Basement.JailGate:FindFirstChild(gateName)
         if not gate then return end
 
-        local puzzleWork = gate:FindFirstChild("PuzzleWork")
+        local puzzleWork = gate:WaitForChild("PuzzleWork", 3)
         if not puzzleWork or not puzzleWork:IsA("RemoteEvent") then return end
 
         local batchConnection = nil
@@ -4870,9 +4874,9 @@ task.spawn(function()
         while timeout < 60 do
             local currentGrid = {} 
             for i = 1, 12 do
-                local pos = gate:GetAttribute("Tile" .. i)
-                if pos and type(pos) == "number" and pos >= 1 and pos <= 12 then
-                    currentGrid[pos] = i
+                local val = gate:GetAttribute("Tile" .. i)
+                if val and type(val) == "number" and val >= 1 and val <= 12 then
+                    currentGrid[val] = i
                 end
             end
 
@@ -4952,7 +4956,7 @@ task.spawn(function()
         end
     end
 
-    -- ゲートごとの自動判別実行メインルーター
+    -- ゲート判別ルーター（全自動モードのときだけゲート中央へテレポート）
     local function executeGate(gateNumStr, isBatchMode)
         task.spawn(function()
             local character = player.Character or player.CharacterAdded:Wait()
@@ -4963,7 +4967,8 @@ task.spawn(function()
             local jailGateFolder = workspace:WaitForChild("Basement"):WaitForChild("JailGate")
             local targetGate = jailGateFolder:FindFirstChild(gateName)
 
-            if targetGate then
+            -- 全自動（すべて順番に実行）のときだけゲートへのテレポートを行う
+            if isBatchMode and targetGate then
                 rootPart.CFrame = targetGate:GetPivot() + Vector3.new(0, 3, 0)
                 task.wait(0.3)
             end
@@ -4974,16 +4979,20 @@ task.spawn(function()
                 runColorMix(gateName, isBatchMode, rootPart)
             elseif gateNumStr == "003" or gateNumStr == "007" then
                 runJigsaw(gateName, isBatchMode, rootPart)
+            elseif gateNumStr == "004" or gateNumStr == "008" then
+                runSingleHintAnchor(gateNumStr, isBatchMode, rootPart)
             end
         end)
     end
 
-    -- 「一番近いゲートの処理を実行する」機能
+    -- 1. 一番近いゲートを実行（テレポートなし・固有の移動のみ）
     local function runNearestGate()
         task.spawn(function()
             local character = player.Character or player.CharacterAdded:Wait()
             local rootPart = character:WaitForChild("HumanoidRootPart")
-            local jailGateFolder = workspace:WaitForChild("Basement"):WaitForChild("JailGate")
+            local basement = workspace:WaitForChild("Basement", 5)
+            local jailGateFolder = basement and basement:WaitForChild("JailGate", 5)
+            if not jailGateFolder then return end
 
             local nearestGate = nil
             local shortestDist = math.huge
@@ -5007,7 +5016,7 @@ task.spawn(function()
         end)
     end
 
-    -- 「すべて順番に実行する（全自動）」機能
+    -- 2. すべて順番に実行（全自動・テレポートあり）
     local function runAllGatesBatch()
         task.spawn(function()
             local character = player.Character or player.CharacterAdded:Wait()
@@ -5018,8 +5027,9 @@ task.spawn(function()
 
             for _, gateNum in ipairs(targetList) do
                 local gateName = "JailGate_" .. gateNum
-                local jailGateFolder = workspace:WaitForChild("Basement"):WaitForChild("JailGate")
-                local targetGate = jailGateFolder:FindFirstChild(gateName)
+                local basement = workspace:WaitForChild("Basement", 5)
+                local jailGateFolder = basement and basement:WaitForChild("JailGate", 5)
+                local targetGate = jailGateFolder and jailGateFolder:FindFirstChild(gateName)
 
                 if targetGate then
                     rootPart.CFrame = targetGate:GetPivot() + Vector3.new(0, 3, 0)
@@ -5033,21 +5043,21 @@ task.spawn(function()
                 elseif gateNum == "003" or gateNum == "007" then
                     runJigsaw(gateName, true, rootPart)
                 elseif gateNum == "004" or gateNum == "008" then
-                    runHintAnchorPuzzle(true, rootPart)
+                    runSingleHintAnchor(gateNum, true, rootPart)
                 end
                 task.wait(0.5)
             end
         end)
     end
 
-    -- UIボタン作成のヘルパー
+    -- ボタン作成ヘルパー
     local function createButton(text, yPos, color, callback)
         local btn = Instance.new("TextButton")
-        btn.Size = UDim2.new(0.9, 0, 0, 28)
+        btn.Size = UDim2.new(0.9, 0, 0, 32)
         btn.Position = UDim2.new(0.05, 0, 0, yPos)
         btn.BackgroundColor3 = color
         btn.TextColor3 = Color3.fromRGB(255, 255, 255)
-        btn.TextSize = 12
+        btn.TextSize = 13
         btn.Font = Enum.Font.SourceSansBold
         btn.Text = text
         btn.Parent = frame
@@ -5059,19 +5069,9 @@ task.spawn(function()
         btn.MouseButton1Click:Connect(callback)
     end
 
-    -- GUIにボタンを配置
+    -- 2つのボタンを配置
     createButton("一番近いゲートを実行", 35, Color3.fromRGB(200, 120, 40), runNearestGate)
-    createButton("すべて順番に実行 (全自動)", 70, Color3.fromRGB(180, 40, 180), runAllGatesBatch)
-
-    createButton("JailGate 001 (バー)", 105, Color3.fromRGB(60, 120, 200), function() executeGate("001", false) end)
-    createButton("JailGate 002 (ColorMix)", 140, Color3.fromRGB(0, 180, 100), function() executeGate("002", false) end)
-    createButton("JailGate 003 (Jigsaw)", 175, Color3.fromRGB(45, 45, 45), function() executeGate("003", false) end)
-    createButton("JailGate_009 (ColorMix)", 210, Color3.fromRGB(0, 120, 255), function() executeGate("009", false) end)
-    createButton("HintAnchor パズル一括", 245, Color3.fromRGB(120, 60, 180), function()
-        task.spawn(function()
-            local char = player.Character or player.CharacterAdded:Wait()
-            runHintAnchorPuzzle(false, char:WaitForChild("HumanoidRootPart"))
-        end)
-    end)
+    createButton("すべて順番に実行 (全自動)", 73, Color3.fromRGB(180, 40, 180), runAllGatesBatch)
 end)
+
 end
