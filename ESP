@@ -4445,3 +4445,188 @@ ReplicatedStorage:GetAttributeChangedSignal("gameType"):Connect(function()
 	updateButtonState()
 end)
 end
+
+do
+local Players = game:GetService("Players")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local Workspace = game:GetService("Workspace")
+
+local player = Players.LocalPlayer
+local playerGui = player:WaitForChild("PlayerGui")
+
+-- 既存の同名GUIがあれば削除（重複防止）
+if playerGui:FindFirstChild("FallingPanelsGui") then
+    playerGui.FallingPanelsGui:Destroy()
+end
+
+-- UIの作成
+local screenGui = Instance.new("ScreenGui")
+screenGui.Name = "FallingPanelsGui"
+screenGui.ResetOnSpawn = false
+screenGui.Parent = playerGui
+
+local frame = Instance.new("Frame")
+frame.Name = "MainFrame"
+frame.Size = UDim2.new(0, 220, 0, 180)
+frame.Position = UDim2.new(0, 20, 0.5, -90)
+frame.BackgroundColor3 = Color3.fromRGB(30, 30, 30)
+frame.BackgroundTransparency = 0.3
+frame.BorderSizePixel = 0
+frame.Visible = false
+frame.Parent = screenGui
+
+local corner = Instance.new("UICorner")
+corner.CornerRadius = UDim.new(0, 8)
+corner.Parent = frame
+
+-- 1つ目のボタン：遠くへテレポート
+local tpFarButton = Instance.new("TextButton")
+tpFarButton.Name = "TpFarButton"
+tpFarButton.Size = UDim2.new(0, 200, 0, 40)
+tpFarButton.Position = UDim2.new(0, 10, 0, 10)
+tpFarButton.BackgroundColor3 = Color3.fromRGB(0, 120, 215)
+tpFarButton.TextColor3 = Color3.fromRGB(255, 255, 255)
+tpFarButton.TextSize = 14
+tpFarButton.Font = Enum.Font.SourceSansBold
+tpFarButton.Text = "遠くへテレポート"
+tpFarButton.Parent = frame
+
+local btnCorner1 = Instance.new("UICorner")
+btnCorner1.CornerRadius = UDim.new(0, 6)
+btnCorner1.Parent = tpFarButton
+
+-- 2つ目のボタン：元の位置に戻る
+local tpBackButton = Instance.new("TextButton")
+tpBackButton.Name = "TpBackButton"
+tpBackButton.Size = UDim2.new(0, 200, 0, 40)
+tpBackButton.Position = UDim2.new(0, 10, 0, 60)
+tpBackButton.BackgroundColor3 = Color3.fromRGB(215, 80, 0)
+tpBackButton.TextColor3 = Color3.fromRGB(255, 255, 255)
+tpBackButton.TextSize = 14
+tpBackButton.Font = Enum.Font.SourceSansBold
+tpBackButton.Text = "元の位置に戻る"
+tpBackButton.Parent = frame
+
+local btnCorner2 = Instance.new("UICorner")
+btnCorner2.CornerRadius = UDim.new(0, 6)
+btnCorner2.Parent = tpBackButton
+
+-- 距離表示ラベル
+local distanceLabel = Instance.new("TextLabel")
+distanceLabel.Name = "DistanceLabel"
+distanceLabel.Size = UDim2.new(0, 200, 0, 50)
+distanceLabel.Position = UDim2.new(0, 10, 0, 110)
+distanceLabel.BackgroundTransparency = 1
+distanceLabel.TextColor3 = Color3.fromRGB(255, 255, 255)
+distanceLabel.TextSize = 14
+distanceLabel.Font = Enum.Font.SourceSansBold
+distanceLabel.Text = "DeathRollとの距離: 計算中..."
+distanceLabel.TextWrapped = true
+distanceLabel.Parent = frame
+
+-- 変数保持
+local savedPosition = nil
+local generatedPlatform = nil
+
+-- 1つ目のボタンの処理（Y座標維持 ＆ 足場生成）
+tpFarButton.MouseButton1Click:Connect(function()
+    local character = player.Character
+    if character and character:FindFirstChild("HumanoidRootPart") then
+        local rootPart = character.HumanoidRootPart
+        -- 現在の位置を保存
+        savedPosition = rootPart.CFrame
+        
+        local currentY = rootPart.Position.Y
+        local targetPos = Vector3.new(99999, currentY, 99999)
+        
+        -- 落下防止の足場を作成
+        if generatedPlatform then
+            generatedPlatform:Destroy()
+        end
+        
+        local platform = Instance.new("Part")
+        platform.Size = Vector3.new(30, 1, 30)
+        platform.Position = Vector3.new(99999, currentY - 3, 99999)
+        platform.Anchored = true
+        platform.BrickColor = BrickColor.new("Bright blue")
+        platform.Material = Enum.Material.SmoothPlastic
+        platform.Parent = Workspace
+        generatedPlatform = platform
+        
+        -- テレポート
+        rootPart.CFrame = CFrame.new(targetPos + Vector3.new(0, 3, 0))
+    end
+end)
+
+-- 2つ目のボタンの処理
+tpBackButton.MouseButton1Click:Connect(function()
+    if savedPosition then
+        local character = player.Character
+        if character and character:FindFirstChild("HumanoidRootPart") then
+            character.HumanoidRootPart.CFrame = savedPosition
+        end
+    else
+        distanceLabel.Text = "先に遠くへテレポートしてください！"
+    end
+end)
+
+-- 属性チェックとUI表示切替
+local function updateVisibility()
+    local gameType = ReplicatedStorage:GetAttribute("gameType")
+    if gameType == "FallingPanels" then
+        frame.Visible = true
+    else
+        frame.Visible = false
+    end
+end
+
+updateVisibility()
+ReplicatedStorage:GetAttributeChangedSignal("gameType"):Connect(updateVisibility)
+
+-- ラグ対策を施した軽量ループ（0.1秒ごとに処理し、Y軸を無視して距離計算）
+task.spawn(function()
+    while true do
+        if frame.Visible then
+            local character = player.Character
+            if character and character:FindFirstChild("HumanoidRootPart") then
+                local rootPos = character.HumanoidRootPart.Position
+                
+                local success, deathRoll = pcall(function()
+                    return Workspace.FallingPanels.DeathRoll
+                end)
+                
+                if success and deathRoll then
+                    local targetPos = nil
+                    if deathRoll:IsA("BasePart") then
+                        targetPos = deathRoll.Position
+                    elseif deathRoll:IsA("Model") then
+                        if deathRoll.PrimaryPart then
+                            targetPos = deathRoll.PrimaryPart.Position
+                        else
+                            local part = deathRoll:FindFirstChildWhichIsA("BasePart")
+                            if part then
+                                targetPos = part.Position
+                            end
+                        end
+                    end
+                    
+                    if targetPos then
+                        -- Y座標は無視してXZ平面のみで距離計算
+                        local p1 = Vector3.new(rootPos.X, 0, rootPos.Z)
+                        local p2 = Vector3.new(targetPos.X, 0, targetPos.Z)
+                        local distance = (p1 - p2).Magnitude
+                        distanceLabel.Text = string.format("DeathRollとの距離: %.1f m", distance)
+                    else
+                        distanceLabel.Text = "DeathRollの位置が取得できません"
+                    end
+                else
+                    distanceLabel.Text = "DeathRollが見つかりません"
+                end
+            else
+                distanceLabel.Text = "キャラクターがいません"
+            end
+        end
+        task.wait(0.1)
+    end
+end)
+end
