@@ -4558,7 +4558,7 @@ end)
 end
 do
 -- ==========================================
--- JailGate 統合自動スクリプト（最寄りテレポートなし・全自動対応）
+-- JailGate 統合自動スクリプト（左手延長線・ヒット位置修正版）
 -- ==========================================
 local players = game:GetService("Players")
 local player = players.LocalPlayer
@@ -4586,7 +4586,7 @@ task.spawn(function()
     screenGui.Parent = playerGui
 
     local frame = Instance.new("Frame")
-    frame.Size = UDim2.new(0, 190, 0, 115)
+    frame.Size = UDim2.new(0, 190, 0, 142)
     frame.Position = UDim2.new(0, 30, 0, 50)
     frame.BackgroundColor3 = Color3.fromRGB(35, 35, 35)
     frame.BorderSizePixel = 0
@@ -4599,7 +4599,7 @@ task.spawn(function()
     corner.Parent = frame
 
     local title = Instance.new("TextLabel")
-    title.Size = UDim2.new(1, 0, 0, 30)
+    title.Size = UDim2.new(1, 0, 0, 26)
     title.BackgroundTransparency = 1
     title.Text = "Gate Auto Master"
     title.TextColor3 = Color3.fromRGB(255, 255, 255)
@@ -4607,43 +4607,64 @@ task.spawn(function()
     title.Font = Enum.Font.SourceSansBold
     title.Parent = frame
 
-    -- バットの自動取得・装備
+    -- 一番近いゲート名を表示するラベル
+    local nearestLabel = Instance.new("TextLabel")
+    nearestLabel.Size = UDim2.new(0.9, 0, 0, 22)
+    nearestLabel.Position = UDim2.new(0.05, 0, 0, 26)
+    nearestLabel.BackgroundTransparency = 1
+    nearestLabel.TextColor3 = Color3.fromRGB(120, 220, 255)
+    nearestLabel.TextSize = 12
+    nearestLabel.Font = Enum.Font.SourceSansBold
+    nearestLabel.Text = "一番近い: 検出中..."
+    nearestLabel.Parent = frame
+
+    -- バットの自動取得・装備（Barsの時のみ呼び出し）
     local function ensureBat(rootPart)
         local character = player.Character
         if not character then return end
+        
+        local hasBatInChar = character:FindFirstChild("Bat")
         local backpack = player:FindFirstChild("Backpack")
         local hasBatInBackpack = backpack and backpack:FindFirstChild("Bat")
-        local hasBatInChar = character:FindFirstChild("Bat")
 
-        if not (hasBatInChar or hasBatInBackpack) then
-            local bat = workspace:FindFirstChild("Bat")
-            if bat then
-                local batHandle = bat:FindFirstChild("Handle")
-                if batHandle then
-                    local tween = tweenService:Create(rootPart, TweenInfo.new(0.3, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {CFrame = batHandle.CFrame})
-                    tween:Play()
-                    tween.Completed:Wait()
-                    task.wait(0.2)
-                    local prompt = batHandle:FindFirstChild("ProximityPrompt")
-                    if prompt then
-                        pcall(function()
-                            if fireproximityprompt then
-                                fireproximityprompt(prompt)
-                            else
-                                prompt:InputHoldBegin()
-                                task.wait(prompt.HoldDuration or 0.1)
-                                prompt:InputHoldEnd()
-                            end
-                        end)
-                        task.wait(0.3)
+        if not hasBatInChar then
+            if hasBatInBackpack then
+                hasBatInBackpack.Parent = character
+                task.wait(0.2)
+            else
+                local bat = workspace:FindFirstChild("Bat")
+                if bat then
+                    local batHandle = bat:FindFirstChild("Handle")
+                    if batHandle then
+                        local tween = tweenService:Create(rootPart, TweenInfo.new(0.3, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {CFrame = batHandle.CFrame})
+                        tween:Play()
+                        tween.Completed:Wait()
+                        task.wait(0.2)
+                        local prompt = batHandle:FindFirstChild("ProximityPrompt")
+                        if prompt then
+                            pcall(function()
+                                if fireproximityprompt then
+                                    fireproximityprompt(prompt)
+                                else
+                                    prompt:InputHoldBegin()
+                                    task.wait(prompt.HoldDuration or 0.1)
+                                    prompt:InputHoldEnd()
+                                end
+                            end)
+                            task.wait(0.3)
+                        end
                     end
                 end
             end
         end
     end
 
-    -- 1. バー破壊処理
+    -- 1. バー破壊処理（左手がバーを向くように修正・周回ヒット）
     local function runGateBars(gateNumStr, isBatchMode, rootPart)
+        ensureBat(rootPart)
+
+        local character = player.Character
+        if not character then return end
         local camera = workspace.CurrentCamera
         local basement = workspace:WaitForChild("Basement", 5)
         if not basement then return end
@@ -4667,25 +4688,26 @@ task.spawn(function()
                          or bars:FindFirstChild("BARS" .. numStr)
 
             if barPart and barPart:IsA("BasePart") then
-                local startPos = barPart.Position + Vector3.new(1.5, 0, 0)
-                local startCFrame = CFrame.new(startPos, barPart.Position)
-                
-                rootPart.CFrame = startCFrame
-                task.wait(0.1)
-
                 local angle = 0
-                local radius = 1.5
+                local radius = 0.9
                 local connection
                 
                 connection = runService.Heartbeat:Connect(function(dt)
                     if rootPart and barPart and barPart.Parent then
-                        angle = angle + dt * 3
+                        angle = angle + dt * 4
+                        
                         local offsetX = math.cos(angle) * radius
                         local offsetZ = math.sin(angle) * radius
-                        local offsetY = math.sin(tick() * 4) * 0.3
-                        local targetPos = barPart.Position + Vector3.new(offsetX, offsetY, offsetZ)
+                        local offsetY = math.sin(tick() * 5) * 0.2
                         
-                        rootPart.CFrame = CFrame.new(targetPos, barPart.Position)
+                        local barPos = barPart.Position
+                        local targetPos = barPos + Vector3.new(offsetX, offsetY, offsetZ)
+                        
+                        -- 右手が当たっていたのを修正し、左手が確実にバーを向くように -90度 に設定
+                        local lookCFrame = CFrame.lookAt(targetPos, barPos)
+                        local adjustedCFrame = lookCFrame * CFrame.Angles(0, math.rad(-90), 0)
+                        
+                        rootPart.CFrame = adjustedCFrame
                         rootPart.AssemblyLinearVelocity = Vector3.new(0, 0, 0)
                         rootPart.AssemblyAngularVelocity = Vector3.new(0, 0, 0)
                     end
@@ -4695,7 +4717,7 @@ task.spawn(function()
 
                 while barPart and barPart.Parent and barPart.Transparency < 1 do
                     swingRemote:FireServer(unpack(args))
-                    task.wait(0.3)
+                    task.wait(0.25)
                 end
 
                 if connection then
@@ -4956,18 +4978,56 @@ task.spawn(function()
         end
     end
 
-    -- ゲート判別ルーター（全自動モードのときだけゲート中央へテレポート）
+    -- 最寄りゲートを計算する関数
+    local function getNearestGateName()
+        local character = player.Character
+        if not character then return nil end
+        local rootPart = character:FindFirstChild("HumanoidRootPart")
+        if not rootPart then return nil end
+
+        local basement = workspace:FindFirstChild("Basement")
+        local jailGateFolder = basement and basement:FindFirstChild("JailGate")
+        if not jailGateFolder then return nil end
+
+        local nearestGate = nil
+        local shortestDist = math.huge
+
+        for _, child in ipairs(jailGateFolder:GetChildren()) do
+            if child:IsA("Model") then
+                local dist = (rootPart.Position - child:GetPivot().Position).Magnitude
+                if dist < shortestDist then
+                    shortestDist = dist
+                    nearestGate = child.Name
+                end
+            end
+        end
+
+        return nearestGate
+    end
+
+    -- リアルタイムで一番近いゲートを表示し続けるループ
+    task.spawn(function()
+        while screenGui.Parent do
+            local nearest = getNearestGateName()
+            if nearest then
+                nearestLabel.Text = "一番近い: " .. nearest
+            else
+                nearestLabel.Text = "一番近い: 検出中..."
+            end
+            task.wait(0.2)
+        end
+    end)
+
+    -- ゲート判別ルーター
     local function executeGate(gateNumStr, isBatchMode)
         task.spawn(function()
             local character = player.Character or player.CharacterAdded:Wait()
             local rootPart = character:WaitForChild("HumanoidRootPart")
-            ensureBat(rootPart)
 
             local gateName = "JailGate_" .. gateNumStr
             local jailGateFolder = workspace:WaitForChild("Basement"):WaitForChild("JailGate")
             local targetGate = jailGateFolder:FindFirstChild(gateName)
 
-            -- 全自動（すべて順番に実行）のときだけゲートへのテレポートを行う
             if isBatchMode and targetGate then
                 rootPart.CFrame = targetGate:GetPivot() + Vector3.new(0, 3, 0)
                 task.wait(0.3)
@@ -4985,30 +5045,12 @@ task.spawn(function()
         end)
     end
 
-    -- 1. 一番近いゲートを実行（テレポートなし・固有の移動のみ）
+    -- 1. 一番近いゲートを実行（テレポートなし）
     local function runNearestGate()
         task.spawn(function()
-            local character = player.Character or player.CharacterAdded:Wait()
-            local rootPart = character:WaitForChild("HumanoidRootPart")
-            local basement = workspace:WaitForChild("Basement", 5)
-            local jailGateFolder = basement and basement:WaitForChild("JailGate", 5)
-            if not jailGateFolder then return end
-
-            local nearestGate = nil
-            local shortestDist = math.huge
-
-            for _, child in ipairs(jailGateFolder:GetChildren()) do
-                if child:IsA("Model") then
-                    local dist = (rootPart.Position - child:GetPivot().Position).Magnitude
-                    if dist < shortestDist then
-                        shortestDist = dist
-                        nearestGate = child.Name
-                    end
-                end
-            end
-
-            if nearestGate then
-                local numStr = nearestGate:match("_(%d+)$")
+            local nearest = getNearestGateName()
+            if nearest then
+                local numStr = nearest:match("_(%d+)$")
                 if numStr then
                     executeGate(numStr, false)
                 end
@@ -5021,7 +5063,6 @@ task.spawn(function()
         task.spawn(function()
             local character = player.Character or player.CharacterAdded:Wait()
             local rootPart = character:WaitForChild("HumanoidRootPart")
-            ensureBat(rootPart)
 
             local targetList = {"001", "002", "003", "004", "006", "007", "008", "009", "011"}
 
@@ -5069,9 +5110,10 @@ task.spawn(function()
         btn.MouseButton1Click:Connect(callback)
     end
 
-    -- 2つのボタンを配置
-    createButton("一番近いゲートを実行", 35, Color3.fromRGB(200, 120, 40), runNearestGate)
-    createButton("すべて順番に実行 (全自動)", 73, Color3.fromRGB(180, 40, 180), runAllGatesBatch)
+    -- ボタン配置
+    createButton("一番近いゲートを実行", 52, Color3.fromRGB(200, 120, 40), runNearestGate)
+    createButton("すべて順番に実行 (全自動)", 92, Color3.fromRGB(180, 40, 180), runAllGatesBatch)
 end)
+
 
 end
