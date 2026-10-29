@@ -4558,7 +4558,7 @@ end)
 end
 do
 -- ==========================================
--- JailGate 統合自動スクリプト（左手延長線・ヒット位置修正版）
+-- JailGate 統合自動スクリプト（一番近いバットのリモート取得対応）
 -- ==========================================
 local players = game:GetService("Players")
 local player = players.LocalPlayer
@@ -4659,7 +4659,36 @@ task.spawn(function()
         end
     end
 
-    -- 1. バー破壊処理（左手がバーを向くように修正・周回ヒット）
+    -- EquipSearchItems からプレイヤーに一番近いバットのリモートを取得する関数
+    local function getNearestSwingRemote(rootPart)
+        local equipSearchItems = workspace:WaitForChild("EquipSearchItems", 5)
+        if not equipSearchItems then return nil end
+
+        local nearestRemote = nil
+        local shortestDist = math.huge
+
+        for _, item in ipairs(equipSearchItems:GetChildren()) do
+            if item.Name == "Bat" then
+                local handle = item:FindFirstChild("Handle") or item:FindFirstChildWhichIsA("BasePart")
+                if handle then
+                    local dist = (rootPart.Position - handle.Position).Magnitude
+                    if dist < shortestDist then
+                        shortestDist = dist
+                        nearestRemote = item:FindFirstChild("SwingAction")
+                    end
+                end
+            end
+        end
+
+        -- 万が一見つからない場合は通常のフォルダ内を直接探索
+        if not nearestRemote and equipSearchItems:FindFirstChild("Bat") then
+            nearestRemote = equipSearchItems.Bat:FindFirstChild("SwingAction")
+        end
+
+        return nearestRemote
+    end
+
+    -- 1. バー破壊処理（一番近いバットのリモートを使用）
     local function runGateBars(gateNumStr, isBatchMode, rootPart)
         ensureBat(rootPart)
 
@@ -4674,9 +4703,7 @@ task.spawn(function()
         local bars = targetGate:WaitForChild("GateGeo", 3) and targetGate.GateGeo:WaitForChild("Bars", 3)
         if not bars then return end
 
-        local equipSearchItems = workspace:WaitForChild("EquipSearchItems", 5)
-        local batItem = equipSearchItems and equipSearchItems:WaitForChild("Bat", 3)
-        local swingRemote = batItem and batItem:WaitForChild("SwingAction", 3)
+        local swingRemote = getNearestSwingRemote(rootPart)
         if not swingRemote then return end
 
         local args = { true }
@@ -4703,7 +4730,6 @@ task.spawn(function()
                         local barPos = barPart.Position
                         local targetPos = barPos + Vector3.new(offsetX, offsetY, offsetZ)
                         
-                        -- 右手が当たっていたのを修正し、左手が確実にバーを向くように -90度 に設定
                         local lookCFrame = CFrame.lookAt(targetPos, barPos)
                         local adjustedCFrame = lookCFrame * CFrame.Angles(0, math.rad(-90), 0)
                         
@@ -5116,4 +5142,76 @@ task.spawn(function()
 end)
 
 
+end
+do
+local Players = game:GetService("Players")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local player = Players.LocalPlayer
+local playerGui = player:WaitForChild("PlayerGui")
+
+-- ボタンと機能を管理する関数
+local function updateButtonState()
+	local gameType = ReplicatedStorage:GetAttribute("gameType")
+	local existingGui = playerGui:FindFirstChild("UnderzoneMazeButtonGui")
+
+	if gameType == "UndergroundMaze" then
+		if existingGui then return end -- すでに存在する場合は何もしない
+
+		-- 画面用GUIの作成
+		local screenGui = Instance.new("ScreenGui")
+		screenGui.Name = "UnderzoneMazeButtonGui"
+		screenGui.ResetOnSpawn = false
+		screenGui.Parent = playerGui
+
+		-- 操作用ボタンの作成（右上ら辺に配置）
+		local button = Instance.new("TextButton")
+		button.Name = "ExitButton"
+		button.Size = UDim2.new(0, 150, 0, 45)
+		button.Position = UDim2.new(1, -165, 0, 20)
+		button.BackgroundColor3 = Color3.fromRGB(40, 160, 255)
+		button.TextColor3 = Color3.fromRGB(255, 255, 255)
+		button.TextSize = 15
+		button.Font = Enum.Font.SourceSansBold
+		button.Text = "ExitZoneを発火"
+		button.Parent = screenGui
+
+		-- 角丸デザイン
+		local corner = Instance.new("UICorner")
+		corner.CornerRadius = UDim.new(0, 10)
+		corner.Parent = button
+
+		-- ボタンタップ時の処理
+		button.MouseButton1Click:Connect(function()
+			local success, err = pcall(function()
+				local exitZone = workspace.UndergroundStage2.UndergroundMaze.EndCap.Anchors.ExitZone
+				local character = player.Character or player.CharacterAdded:Wait()
+				local rootPart = character:WaitForChild("HumanoidRootPart")
+
+				if firetouchinterest and exitZone and rootPart then
+					-- タッチイベントをシミュレート (Touch, Untouch)
+					firetouchinterest(rootPart, exitZone, 0)
+					task.wait(0.05)
+					firetouchinterest(rootPart, exitZone, 1)
+				end
+			end)
+
+			if not success then
+				warn("ExitZoneの取得または発火に失敗しました: " .. tostring(err))
+			end
+		end)
+	else
+		-- 条件に一致しない場合はGUIを削除
+		if existingGui then
+			existingGui:Destroy()
+		end
+	end
+end
+
+-- 起動時の初期チェック
+updateButtonState()
+
+-- ReplicatedStorageの gameType 属性が変更されたときに自動で切り替え
+ReplicatedStorage:GetAttributeChangedSignal("gameType"):Connect(function()
+	updateButtonState()
+end)
 end
