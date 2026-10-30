@@ -1336,40 +1336,46 @@ local function processSingleRadioRoom(room)
                 local lastVolume = volume.Value
                 local sendVal = target.Value > 0 and target.Value or 0.5
 
-                -- 【探索フェーズ】Volume が 0.90 以上になる正解の Target 値を探す
-                while prompt and prompt.Parent and volume.Value < 0.90 do
-                    local cv = volume.Value
-
-                    -- 音量が下がった（遠ざかった）場合は進む方向を反転＆刻みを細かくする
-                    if cv < lastVolume and cv > 0 then
-                        step = -step * 0.6
-                        if math.abs(step) < 0.02 then
-                            step = (step < 0) and -0.10 or 0.10
-                        end
-                    end
-
-                    sendVal = sendVal + step
-
-                    -- 0.01〜0.99 の範囲に収める
-                    if sendVal <= 0.01 then
-                        sendVal = 0.05
-                        step = math.abs(step)
-                    elseif sendVal >= 0.99 then
-                        sendVal = 0.95
-                        step = -math.abs(step)
-                    end
-
-                    sendValue(workEvent, radio, sendVal)
-
-                    lastVolume = cv
-                    task.wait(0.08)
-                end
-
-                -- 【クリアフェーズ】Volume >= 0.90 に達した正解値をプロンプトが消えるまで一定回数送り続ける
-                local solvedVal = sendVal
+                -- 0.9未満になった場合に自動で再捜索に戻るループ構造
                 while prompt and prompt.Parent do
-                    sendValue(workEvent, radio, solvedVal)
-                    task.wait(0.05)
+                    step = 0.15
+                    lastVolume = volume.Value
+
+                    -- 【探索フェーズ】Volume が 0.90 以上になる正解の Target 値を探す
+                    while prompt and prompt.Parent and volume.Value < 0.90 do
+                        local cv = volume.Value
+
+                        -- 音量が下がった（遠ざかった）場合は進む方向を反転＆刻みを細かくする
+                        if cv < lastVolume and cv > 0 then
+                            step = -step * 0.6
+                            if math.abs(step) < 0.02 then
+                                step = (step < 0) and -0.10 or 0.10
+                            end
+                        end
+
+                        sendVal = sendVal + step
+
+                        -- 0.01〜0.99 の範囲に収める
+                        if sendVal <= 0.01 then
+                            sendVal = 0.05
+                            step = math.abs(step)
+                        elseif sendVal >= 0.99 then
+                            sendVal = 0.95
+                            step = -math.abs(step)
+                        end
+
+                        sendValue(workEvent, radio, sendVal)
+
+                        lastVolume = cv
+                        task.wait(0.08)
+                    end
+
+                    -- 【クリアフェーズ】Volume >= 0.90 に達した正解値を送り続ける。0.9未満に下がったら外側ループにより再捜索
+                    local solvedVal = sendVal
+                    while prompt and prompt.Parent and volume.Value >= 0.90 do
+                        sendValue(workEvent, radio, solvedVal)
+                        task.wait(0.05)
+                    end
                 end
             end)
         end
@@ -1620,6 +1626,7 @@ RunService.RenderStepped:Connect(function()
         end
     end
 end)
+
 
 end
 
